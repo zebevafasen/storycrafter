@@ -11,15 +11,15 @@
   --bg-input-focus: #2d2d2d;
   --border-color: #2b2b2b;
   --border-color-active: #3e3e3e;
-  
+
   --text-primary: #e3e3e3;
   --text-muted: #8c8c8c;
   --text-dim: #5c5c5c;
-  
+
   --accent: #9c9c9c;
   --accent-light: #cccccc;
   --accent-bg: #2e2e2e;
-  
+
   --danger: #7c2d2d;
   --danger-light: #ff6b6b;
   --danger-bg: #3a1c1c;
@@ -128,8 +128,8 @@ body {
   gap: 24px;
   width: 280px;
   transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              padding 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.25s ease;
+    padding 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.25s ease;
 }
 
 .sidebar.collapsed {
@@ -307,8 +307,15 @@ body {
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 button {
@@ -350,7 +357,9 @@ button.icon-btn {
   border-radius: 6px;
 }
 
-input, textarea, select {
+input,
+textarea,
+select {
   font-family: var(--font-sans);
   background-color: var(--bg-input);
   border: 1px solid var(--border-color);
@@ -363,7 +372,9 @@ input, textarea, select {
   transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
   border-color: var(--accent);
   background-color: var(--bg-input-focus);
 }
@@ -525,8 +536,15 @@ label {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Bottom Controls */
@@ -718,14 +736,30 @@ label {
   border-radius: 4px;
 }
 
-.skeleton-line.w-full { width: 100%; }
-.skeleton-line.w-90 { width: 90%; }
-.skeleton-line.w-80 { width: 80%; }
-.skeleton-line.w-60 { width: 60%; }
+.skeleton-line.w-full {
+  width: 100%;
+}
+
+.skeleton-line.w-90 {
+  width: 90%;
+}
+
+.skeleton-line.w-80 {
+  width: 80%;
+}
+
+.skeleton-line.w-60 {
+  width: 60%;
+}
 
 @keyframes pulse {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* Toast Message */
@@ -748,8 +782,15 @@ label {
 }
 
 @keyframes slideIn {
-  from { transform: translateY(100%) scale(0.9); opacity: 0; }
-  to { transform: translateY(0) scale(1); opacity: 1; }
+  from {
+    transform: translateY(100%) scale(0.9);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
 }
 
 /* Target Length Controls CSS */
@@ -883,9 +924,9 @@ label {
 }
 
 /* Disabled/Locked Input States */
-textarea:disabled, 
-input:disabled, 
-select:disabled, 
+textarea:disabled,
+input:disabled,
+select:disabled,
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1086,6 +1127,3 @@ button:disabled {
   color: var(--text-primary);
   font-weight: 600;
 }
-
-
-
