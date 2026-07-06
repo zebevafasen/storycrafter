@@ -1,6 +1,7 @@
+import { plainTextToManuscriptDoc, manuscriptDocToPlainText } from '../utils/manuscriptDocument';
 import { PROJECT_CONTENT_DEFAULTS } from '../utils/projectState';
 
-export default function useProjectContent(currentProject, setCurrentProjectField) {
+export default function useProjectContent(currentProject, setCurrentProjectField, updateCurrentProject) {
   const project = currentProject || {
     id: null,
     name: 'Untitled Project',
@@ -9,10 +10,24 @@ export default function useProjectContent(currentProject, setCurrentProjectField
   };
 
   const bindField = (field) => (value) => setCurrentProjectField(field, value);
+  const setStoryText = (value) => {
+    updateCurrentProject({
+      storyText: value,
+      manuscriptDoc: plainTextToManuscriptDoc(value),
+    });
+  };
+
+  const setManuscriptDoc = (value) => {
+    updateCurrentProject({
+      manuscriptDoc: value,
+      storyText: manuscriptDocToPlainText(value),
+    });
+  };
 
   return {
     project,
     storyText: project.storyText,
+    manuscriptDoc: project.manuscriptDoc,
     genres: project.genres,
     themes: project.themes,
     customTags: project.customTags,
@@ -25,7 +40,8 @@ export default function useProjectContent(currentProject, setCurrentProjectField
     nextMainEvent: project.nextMainEvent,
     limitType: project.limitType,
     limitValue: project.limitValue,
-    setStoryText: bindField('storyText'),
+    setStoryText,
+    setManuscriptDoc,
     setGenres: bindField('genres'),
     setThemes: bindField('themes'),
     setCustomTags: bindField('customTags'),

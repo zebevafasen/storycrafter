@@ -4,7 +4,9 @@ import {
   Flag,
   PenLine,
   RefreshCw,
+  RotateCcw,
   Slash,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -142,6 +144,8 @@ export default function BottomControls({
   isGenerating,
   isWriteMenuOpen,
   activeCommand,
+  canRegenerateLast,
+  canDeleteLatest,
   limitType,
   limitValue,
   whatHappensNext,
@@ -153,6 +157,8 @@ export default function BottomControls({
   onOpenWriteMenu,
   onCloseWriteMenu,
   onActiveCommandChange,
+  onRegenerateLast,
+  onDeleteLatest,
   onGenerate,
 }) {
   const popupRef = useRef(null);
@@ -334,6 +340,31 @@ export default function BottomControls({
             <span className="command-dock-title">Prompt the co-writer only when you need it.</span>
             <span className="command-dock-hint">Type `/` on a blank line or open the command menu.</span>
           </div>
+        </div>
+
+        <div className="generate-actions">
+          {canDeleteLatest && (
+            <button
+              type="button"
+              onClick={onDeleteLatest}
+              disabled={isGenerating}
+              title="Delete the latest AI-generated segment"
+            >
+              <Trash2 size={14} />
+              Delete Latest
+            </button>
+          )}
+          {canRegenerateLast && (
+            <button
+              type="button"
+              onClick={onRegenerateLast}
+              disabled={isGenerating}
+              title="Generate a fresh version of the latest AI-written segment"
+            >
+              <RotateCcw size={14} />
+              Regenerate Last
+            </button>
+          )}
         </div>
       </div>
     </section>

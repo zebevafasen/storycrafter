@@ -15,7 +15,6 @@ export default function useStoryGenerator({
   nextMainEvent,
   limitType,
   limitValue,
-  setStoryText,
   setMemory,
   setWhatHappensNext,
   onToast,
@@ -70,7 +69,6 @@ export default function useStoryGenerator({
     const sourceLimitValue = overrides.limitValue ?? limitValue;
     const sourceGenerationMode = overrides.mode ?? STORY_GENERATION_MODES.CONTINUE;
     const originalText = sourceStoryText.trim();
-    let streamedText = '';
 
     try {
       const defaultLimitValue = sourceLimitType === 'words' ? 250 : 3;
@@ -97,10 +95,6 @@ export default function useStoryGenerator({
         nextMainEvent: sourceNextMainEvent,
         limitType: sourceLimitType,
         limitValue: finalLimitValue,
-        onChunk: (textSoFar) => {
-          streamedText = textSoFar;
-          setStoryText(originalText + (originalText ? '\n\n' : '') + textSoFar);
-        },
       });
 
       if (!newText) {
@@ -108,7 +102,6 @@ export default function useStoryGenerator({
       }
 
       const finalStoryText = originalText + (originalText ? '\n\n' : '') + newText.trim();
-      setStoryText(finalStoryText);
       setWhatHappensNext('');
       onToast('Story segment generated');
 
@@ -137,9 +130,6 @@ export default function useStoryGenerator({
     } catch (error) {
       console.error(error);
       onToast(`Generation failed: ${error.message}`);
-      if (!streamedText) {
-        setStoryText(originalText);
-      }
       return { success: false, error };
     } finally {
       setIsGenerating(false);

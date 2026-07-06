@@ -13,6 +13,7 @@ import useProjectManager from './hooks/useProjectManager';
 import useStorySetupActions from './hooks/useStorySetupActions';
 import useStoryGenerator from './hooks/useStoryGenerator';
 import useWorkspaceActions from './hooks/useWorkspaceActions';
+import { appendGeneratedSegmentToManuscriptDoc } from './utils/manuscriptDocument';
 import {
   AVAILABLE_MODELS,
   fetchOpenRouterModels,
@@ -77,7 +78,6 @@ export default function App() {
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isWriteMenuOpen, setIsWriteMenuOpen] = useState(false);
   const [activeWriteCommand, setActiveWriteCommand] = useState(STORY_GENERATION_MODES.START);
-  const [commandAnchorIndex, setCommandAnchorIndex] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [modelsList, setModelsList] = useState(AVAILABLE_MODELS);
 
@@ -88,6 +88,7 @@ export default function App() {
   const {
     project,
     storyText,
+    manuscriptDoc,
     genres,
     themes,
     customTags,
@@ -101,6 +102,7 @@ export default function App() {
     limitType,
     limitValue,
     setStoryText,
+    setManuscriptDoc,
     setGenres,
     setThemes,
     setCustomTags,
@@ -110,7 +112,7 @@ export default function App() {
     setWhatHappensNext,
     setNextMainEvent,
     setLimitValue,
-  } = useProjectContent(currentProject, setCurrentProjectField);
+  } = useProjectContent(currentProject, setCurrentProjectField, updateCurrentProject);
 
   const {
     isGenerating,
@@ -130,7 +132,6 @@ export default function App() {
     nextMainEvent,
     limitType,
     limitValue,
-    setStoryText,
     setMemory,
     setWhatHappensNext,
     onToast: triggerToast,
@@ -236,9 +237,8 @@ export default function App() {
       || getDefaultStoryGenerationMode(storyText);
   };
 
-  const handleOpenWriteMenu = (preferredMode = null, anchorIndex = null) => {
+  const handleOpenWriteMenu = (preferredMode = null, _selectionOffset = null) => {
     setActiveWriteCommand(resolveWriteCommand(preferredMode));
-    setCommandAnchorIndex(typeof anchorIndex === 'number' ? anchorIndex : storyText.length);
     setIsWriteMenuOpen(true);
   };
 
@@ -288,12 +288,19 @@ export default function App() {
     const result = await generateStorySegment({ mode });
     if (result?.success) {
       const historyEntry = buildGenerationHistoryEntryFromResult(result, 'generation');
-      setCommandAnchorIndex(historyEntry.startIndex);
+      const nextManuscriptDoc = appendGeneratedSegmentToManuscriptDoc(manuscriptDoc, {
+        entryId: historyEntry.id,
+        generatedText: result.generatedSegmentText,
+      });
+
       updateCurrentProject((projectState) => ({
+        storyText: result.finalStoryText,
+        manuscriptDoc: nextManuscriptDoc,
         lastGeneration: {
           historyEntryId: historyEntry.id,
           generationMode: result.generationMode,
           baseStoryText: result.baseStoryText,
+          baseManuscriptDoc: manuscriptDoc,
           baseMemory: result.baseMemory,
           generatedText: result.generatedSegmentText,
           whatHappensNext: result.whatHappensNext,
@@ -310,6 +317,7 @@ export default function App() {
         source: 'generation',
         contentOverride: {
           storyText: result.finalStoryText,
+          manuscriptDoc: nextManuscriptDoc,
           whatHappensNext: '',
         },
       });
@@ -335,12 +343,12 @@ export default function App() {
     });
 
     setStoryText(lastGeneration.baseStoryText);
+    setManuscriptDoc(lastGeneration.baseManuscriptDoc);
     setMemory(lastGeneration.baseMemory);
     setWhatHappensNext(lastGeneration.whatHappensNext);
     setNextMainEvent(lastGeneration.nextMainEvent);
     setCurrentProjectField('limitType', lastGeneration.limitType);
     setLimitValue(lastGeneration.limitValue);
-    setCommandAnchorIndex(lastGeneration.baseStoryText.length);
     updateCurrentProject((projectState) => ({
       generationHistory: (projectState.generationHistory || []).map((entry) => (
         entry.id === projectState.lastGeneration?.historyEntryId
@@ -373,12 +381,12 @@ export default function App() {
     });
 
     setStoryText(lastGeneration.baseStoryText);
+    setManuscriptDoc(lastGeneration.baseManuscriptDoc);
     setMemory(lastGeneration.baseMemory);
     setWhatHappensNext(lastGeneration.whatHappensNext);
     setNextMainEvent(lastGeneration.nextMainEvent);
     setCurrentProjectField('limitType', lastGeneration.limitType);
     setLimitValue(lastGeneration.limitValue);
-    setCommandAnchorIndex(lastGeneration.baseStoryText.length);
     updateCurrentProject((projectState) => ({
       generationHistory: (projectState.generationHistory || []).map((entry) => (
         entry.id === projectState.lastGeneration?.historyEntryId
@@ -405,12 +413,19 @@ export default function App() {
 
     if (result?.success) {
       const historyEntry = buildGenerationHistoryEntryFromResult(result, 'regeneration');
-      setCommandAnchorIndex(historyEntry.startIndex);
+      const nextManuscriptDoc = appendGeneratedSegmentToManuscriptDoc(lastGeneration.baseManuscriptDoc, {
+        entryId: historyEntry.id,
+        generatedText: result.generatedSegmentText,
+      });
+
       updateCurrentProject((projectState) => ({
+        storyText: result.finalStoryText,
+        manuscriptDoc: nextManuscriptDoc,
         lastGeneration: {
           historyEntryId: historyEntry.id,
           generationMode: result.generationMode,
           baseStoryText: result.baseStoryText,
+          baseManuscriptDoc: lastGeneration.baseManuscriptDoc,
           baseMemory: result.baseMemory,
           generatedText: result.generatedSegmentText,
           whatHappensNext: result.whatHappensNext,
@@ -427,6 +442,7 @@ export default function App() {
         source: 'regeneration',
         contentOverride: {
           storyText: result.finalStoryText,
+          manuscriptDoc: nextManuscriptDoc,
           whatHappensNext: '',
         },
       });
@@ -514,13 +530,12 @@ export default function App() {
       <main className="center-workspace">
         <StoryCanvas
           storyText={storyText}
+          manuscriptDoc={manuscriptDoc}
           isGenerating={isGenerating}
-          commandAnchorIndex={commandAnchorIndex}
           generationHistory={generationHistory}
           lastGeneration={lastGeneration}
-          onStoryTextChange={setStoryText}
+          onManuscriptDocChange={setManuscriptDoc}
           onOpenWriteCommands={handleOpenWriteMenu}
-          onSelectHistoryEntry={(entry) => setCommandAnchorIndex(entry.startIndex)}
           onRegenerateLast={handleRegenerateLast}
           onDeleteLatest={handleDeleteLatest}
         />
@@ -540,6 +555,8 @@ export default function App() {
           isGenerating={isGenerating}
           isWriteMenuOpen={isWriteMenuOpen}
           activeCommand={activeWriteCommand}
+          canRegenerateLast={Boolean(lastGeneration)}
+          canDeleteLatest={Boolean(lastGeneration?.isApplied)}
           limitType={limitType}
           limitValue={limitValue}
           whatHappensNext={whatHappensNext}
@@ -551,6 +568,8 @@ export default function App() {
           onOpenWriteMenu={handleOpenWriteMenu}
           onCloseWriteMenu={() => setIsWriteMenuOpen(false)}
           onActiveCommandChange={setActiveWriteCommand}
+          onRegenerateLast={handleRegenerateLast}
+          onDeleteLatest={handleDeleteLatest}
           onGenerate={handleRunWriteCommand}
         />
       </main>
