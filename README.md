@@ -16,6 +16,8 @@ The app is built with React and Vite. It runs entirely in the browser and stores
 - Automatic story memory updates after each generated segment
 - Editable memory panel for characters, locations, facts, and active goals
 - Searchable model picker with live OpenRouter model loading
+- Multi-project workspace with named drafts
+- Snapshot and restore history for each project
 - Copy, TXT export, and Markdown export
 
 ## Getting Started
@@ -76,14 +78,27 @@ When the user clicks **Co-Write next**, StoryCrafter sends the setup, recent sto
 
 ```text
 src/
-  App.jsx                    Main application state and layout
+  App.jsx                    Main application shell and state wiring
   main.jsx                   React entry point
   index.css                  Application styling
+  hooks/
+    usePersistentState.js    Reusable localStorage-backed state hook
+    useProjectManager.js     Project switching and snapshot management
+    useStoryGenerator.js     Generation and memory update workflow
   services/openrouter.js     OpenRouter API and prompt logic
+  utils/
+    projectState.js          Project state factories, migration, and restore helpers
+    storyExport.js           Export content builders and file download helper
   components/
+    AppHeader.jsx            Header actions and status display
+    BottomControls.jsx       Prompt and generation controls
     MemoryPanel.jsx          Editable story memory drawer content
+    ProjectsModal.jsx        Project manager and version history UI
     SearchableSelect.jsx     Model picker with custom model support
     SettingsModal.jsx        OpenRouter key, model, and temperature settings
+    StoryCanvas.jsx          Main manuscript editor surface
+    StoryMemoryDrawer.jsx    Slide-out memory panel wrapper
+    StorySetupSidebar.jsx    Story setup controls
     TagInput.jsx             Tag entry and preset selector
 ```
 
@@ -92,12 +107,9 @@ src/
 StoryCrafter currently persists these values in browser `localStorage`:
 
 - OpenRouter configuration
-- Story text
-- Selected genres
-- Selected themes
-- Custom tags
-- Premise
-- Story memory
+- A multi-project workspace state object
+- Per-project story text, tags, prompts, memory, and generation settings
+- Snapshot history for each project
 
 There is no backend database yet, so data is local to the browser profile where the app is used.
 
@@ -106,4 +118,3 @@ There is no backend database yet, so data is local to the browser profile where 
 - The app currently has no server-side secret handling. API keys are stored client-side.
 - The model list is fetched from OpenRouter on load, with a built-in fallback list.
 - The production base path is configured as `/storycrafter/` in `vite.config.js`.
-- `src/App.css` still contains unused starter-template styles and can likely be removed after confirming it is not imported.

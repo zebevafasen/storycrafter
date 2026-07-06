@@ -1,6 +1,11 @@
 /**
  * OpenRouter API Service for StoryCrafter
  */
+import {
+  buildMemoryUpdateMessages,
+  buildNextSegmentMessages,
+  buildPremiseFromSetupMessages,
+} from '../utils/storyPrompts';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -109,7 +114,6 @@ async function makeOpenRouterRequest(apiKey, model, messages, temperature = 0.7)
   const data = await response.json();
   return data.choices[0].message.content.trim();
 }
-
 /**
  * Generates the next part of the story
  */
@@ -120,6 +124,7 @@ export async function generateNextSegment({
   genres = [],
   themes = [],
   tags = [],
+  characters = [],
   premise = '',
   memory = '',
   storyText = '',
@@ -129,56 +134,19 @@ export async function generateNextSegment({
   limitValue = 250,
   onChunk = null, // Optional callback for streaming tokens
 }) {
-  // Format constraint instruction
-  let lengthConstraint = 'Write a natural continuation. Maintain the existing writing style.';
-  if (limitType === 'words' && limitValue) {
-    lengthConstraint = `Aim for approximately ${limitValue} words. Focus on a pacing that matches the story so far.`;
-  } else if (limitType === 'paragraphs' && limitValue) {
-    lengthConstraint = `Write exactly ${limitValue} paragraph(s). Do not write more than ${limitValue} paragraphs.`;
-  } else if (limitType === 'nolimit') {
-    lengthConstraint = 'Write a natural, complete segment. No strict word or paragraph limits, but keep it readable.';
-  }
-
-  // Format system instruction
-  const systemPrompt = `You are an expert creative writer and co-author. Your goal is to write the next segment of the story, maintaining the tone, style, and narrative flow of the story so far.
-
-Adhere strictly to these story details:
-${genres.length > 0 ? `- Genres: ${genres.join(', ')}` : ''}
-${themes.length > 0 ? `- Themes: ${themes.join(', ')}` : ''}
-${tags.length > 0 ? `- Tags: ${tags.join(', ')}` : ''}
-${premise ? `- Premise/Summary: ${premise}` : ''}
-
-Background Story Memory (Key Facts/Characters):
-${memory || 'No established memory yet.'}
-
-Length Constraint:
-${lengthConstraint}`;
-
-  // Assemble recent story for context (last ~4000 characters to prevent context bloating)
-  const recentStory = storyText ? storyText.slice(-4000) : '';
-
-  // Format user instruction
-  let userInstruction = 'Continue the story based on the details above.\n';
-  if (whatHappensNext) {
-    userInstruction += `- What should happen next: ${whatHappensNext}\n`;
-  }
-  if (nextMainEvent) {
-    userInstruction += `- Next main event/goal to progress towards: ${nextMainEvent}\n`;
-  }
-
-  const userPrompt = `Here is the story so far:
----
-${recentStory || '(The story is just beginning.)'}
----
-
-Instructions for this new segment:
-${userInstruction}
-Write the next part of the story now:`;
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ];
+  const messages = buildNextSegmentMessages({
+    genres,
+    themes,
+    tags,
+    characters,
+    premise,
+    memory,
+    storyText,
+    whatHappensNext,
+    nextMainEvent,
+    limitType,
+    limitValue,
+  });
 
   if (onChunk) {
     if (!apiKey) {
@@ -257,38 +225,42 @@ export async function updateMemory({
   apiKey,
   model,
   currentMemory = '',
+  characters = [],
   premise = '',
   newSegmentText = '',
 }) {
-  const systemPrompt = `You are a story memory manager. Your task is to update the summary and key facts of a story based on the latest story segment additions.
-Keep the memory concise, structured, and focused on:
-- Active characters (their statuses, relationships, and inventory)
-- The current setting/location
-- Key plot developments or secrets revealed
-- Active quests or short-term goals
-
-Do not write the story. Only output the updated facts as structured bullet points.`;
-
-  const userPrompt = `Current Memory:
-${currentMemory || 'No memory yet.'}
-
-Story Premise:
-${premise || 'No premise set.'}
-
-Newest Story Segment:
----
-${newSegmentText}
----
-
-Generate the updated memory block based on this new information. Keep it under 250 words and format as a bulleted list.`;
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ];
+  const messages = buildMemoryUpdateMessages({
+    currentMemory,
+    characters,
+    premise,
+    newSegmentText,
+  });
 
   // We can use a faster/cheaper model for memory or the user's selected model. Let's use the selected model.
   return makeOpenRouterRequest(apiKey, model, messages, 0.3);
+}
+
+/**
+ * Generates a premise or summary from the selected story setup
+ */
+export async function generatePremiseFromSetup({
+  apiKey,
+  model,
+  genres = [],
+  themes = [],
+  tags = [],
+  characters = [],
+  currentPremise = '',
+}) {
+  const messages = buildPremiseFromSetupMessages({
+    genres,
+    themes,
+    tags,
+    characters,
+    currentPremise,
+  });
+
+  return makeOpenRouterRequest(apiKey, model, messages, 0.9);
 }
 
 /**

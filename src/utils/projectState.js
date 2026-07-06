@@ -1,0 +1,278 @@
+const MAX_SNAPSHOTS_PER_PROJECT = 25;
+
+const LEGACY_STORAGE_KEYS = {
+  storyText: 'storycrafter_text',
+  genres: 'storycrafter_genres',
+  themes: 'storycrafter_themes',
+  customTags: 'storycrafter_tags',
+  premise: 'storycrafter_premise',
+  memory: 'storycrafter_memory',
+};
+
+export const PROJECT_CONTENT_DEFAULTS = {
+  storyText: '',
+  genres: [],
+  themes: [],
+  customTags: [],
+  characters: [],
+  premise: '',
+  memory: '',
+  whatHappensNext: '',
+  nextMainEvent: '',
+  limitType: 'paragraphs',
+  limitValue: 3,
+};
+
+export const PROJECT_CONTENT_FIELDS = Object.keys(PROJECT_CONTENT_DEFAULTS);
+const TAG_COLLECTION_FIELDS = new Set(['genres', 'themes', 'customTags']);
+
+function createId(prefix) {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function cleanString(value, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function cleanArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+}
+
+export function createCharacter({
+  id = createId('character'),
+  name = '',
+  tags = [],
+  description = '',
+} = {}) {
+  return {
+    id: cleanString(id, createId('character')),
+    name: cleanString(name),
+    tags: cleanArray(tags),
+    description: cleanString(description),
+  };
+}
+
+function cleanCharacters(value) {
+  return Array.isArray(value) ? value.map((character) => createCharacter(character)) : [];
+}
+
+function normalizeContentField(field, value, fallbackValue) {
+  const resolvedValue = value ?? fallbackValue;
+
+  if (TAG_COLLECTION_FIELDS.has(field)) {
+    return cleanArray(resolvedValue);
+  }
+
+  if (field === 'characters') {
+    return cleanCharacters(resolvedValue);
+  }
+
+  if (field === 'limitValue') {
+    if (resolvedValue === undefined) {
+      return fallbackValue;
+    }
+
+    return resolvedValue === null || resolvedValue === '' ? resolvedValue : Number(resolvedValue);
+  }
+
+  if (field === 'limitType') {
+    const candidate = cleanString(resolvedValue, fallbackValue);
+    return ['words', 'paragraphs', 'nolimit'].includes(candidate) ? candidate : fallbackValue;
+  }
+
+  return cleanString(resolvedValue, fallbackValue);
+}
+
+function normalizeProjectContent(source = {}, fallback = PROJECT_CONTENT_DEFAULTS) {
+  return PROJECT_CONTENT_FIELDS.reduce((content, field) => {
+    content[field] = normalizeContentField(field, source[field], fallback[field]);
+    return content;
+  }, {});
+}
+
+function normalizeSnapshot(snapshot) {
+  return {
+    id: cleanString(snapshot?.id, createId('snapshot')),
+    label: cleanString(snapshot?.label, 'Snapshot'),
+    source: cleanString(snapshot?.source, 'manual'),
+    createdAt: cleanString(snapshot?.createdAt, new Date().toISOString()),
+    content: normalizeProjectContent(snapshot?.content, PROJECT_CONTENT_DEFAULTS),
+  };
+}
+
+function pickProjectContent(project) {
+  return normalizeProjectContent(project, PROJECT_CONTENT_DEFAULTS);
+}
+
+function guessProjectName(project) {
+  const candidates = [
+    project.premise,
+    project.storyText,
+  ]
+    .flatMap((value) => cleanString(value).split('\n'))
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const firstCandidate = candidates[0];
+  if (!firstCandidate) {
+    return 'Untitled Project';
+  }
+
+  return firstCandidate.slice(0, 40);
+}
+
+export function createProject({
+  name = 'Untitled Project',
+  createdAt = new Date().toISOString(),
+  updatedAt = createdAt,
+  content = {},
+  snapshots = [],
+} = {}) {
+  return {
+    id: createId('project'),
+    name: cleanString(name, 'Untitled Project'),
+    createdAt,
+    updatedAt,
+    ...PROJECT_CONTENT_DEFAULTS,
+    ...content,
+    snapshots,
+  };
+}
+
+export function createSnapshot(project, label = 'Manual snapshot', source = 'manual') {
+  return {
+    id: createId('snapshot'),
+    label: cleanString(label, 'Manual snapshot'),
+    source,
+    createdAt: new Date().toISOString(),
+    content: pickProjectContent(project),
+  };
+}
+
+export function attachSnapshot(project, snapshot) {
+  const snapshots = [snapshot, ...(project.snapshots || [])].slice(0, MAX_SNAPSHOTS_PER_PROJECT);
+  return {
+    ...project,
+    snapshots,
+  };
+}
+
+export function applyProjectContent(project, content, updatedAt = new Date().toISOString()) {
+  const nextContent = normalizeProjectContent(content, project);
+
+  return {
+    ...project,
+    ...nextContent,
+    updatedAt,
+  };
+}
+
+export function duplicateProject(project) {
+  const duplicatedProject = createProject({
+    name: `${project.name} Copy`,
+    content: pickProjectContent(project),
+  });
+
+  return duplicatedProject;
+}
+
+export function normalizeProject(rawProject) {
+  const createdAt = cleanString(rawProject?.createdAt, new Date().toISOString());
+  const updatedAt = cleanString(rawProject?.updatedAt, createdAt);
+  const baseProject = createProject({
+    name: cleanString(rawProject?.name, 'Untitled Project'),
+    createdAt,
+    updatedAt,
+    content: normalizeProjectContent(rawProject, PROJECT_CONTENT_DEFAULTS),
+  });
+
+  return {
+    ...baseProject,
+    id: cleanString(rawProject?.id, baseProject.id),
+    snapshots: Array.isArray(rawProject?.snapshots)
+      ? rawProject.snapshots.map((snapshot) => normalizeSnapshot(snapshot)).slice(0, MAX_SNAPSHOTS_PER_PROJECT)
+      : [],
+  };
+}
+
+export function createInitialProjectsState() {
+  if (typeof window === 'undefined') {
+    const project = createProject();
+    return {
+      currentProjectId: project.id,
+      projects: [project],
+    };
+  }
+
+  const legacyProjectContent = {
+    storyText: cleanString(window.localStorage.getItem(LEGACY_STORAGE_KEYS.storyText)),
+    premise: cleanString(window.localStorage.getItem(LEGACY_STORAGE_KEYS.premise)),
+    memory: cleanString(window.localStorage.getItem(LEGACY_STORAGE_KEYS.memory)),
+    characters: [],
+    whatHappensNext: '',
+    nextMainEvent: '',
+    limitType: 'paragraphs',
+    limitValue: 3,
+  };
+
+  try {
+    legacyProjectContent.genres = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEYS.genres) || '[]');
+  } catch {
+    legacyProjectContent.genres = [];
+  }
+
+  try {
+    legacyProjectContent.themes = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEYS.themes) || '[]');
+  } catch {
+    legacyProjectContent.themes = [];
+  }
+
+  try {
+    legacyProjectContent.customTags = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEYS.customTags) || '[]');
+  } catch {
+    legacyProjectContent.customTags = [];
+  }
+
+  const migratedProject = createProject({
+    name: guessProjectName(legacyProjectContent),
+    content: legacyProjectContent,
+  });
+
+  if (
+    migratedProject.storyText.trim() ||
+    migratedProject.premise.trim() ||
+    migratedProject.memory.trim() ||
+    migratedProject.genres.length ||
+    migratedProject.themes.length ||
+    migratedProject.customTags.length
+  ) {
+    migratedProject.snapshots = [
+      createSnapshot(migratedProject, 'Imported legacy draft', 'migration'),
+    ];
+  }
+
+  return {
+    currentProjectId: migratedProject.id,
+    projects: [migratedProject],
+  };
+}
+
+export function normalizeProjectsState(rawState) {
+  if (!rawState || !Array.isArray(rawState.projects) || rawState.projects.length === 0) {
+    return createInitialProjectsState();
+  }
+
+  const projects = rawState.projects.map((project) => normalizeProject(project));
+  const currentProjectId = projects.some((project) => project.id === rawState.currentProjectId)
+    ? rawState.currentProjectId
+    : projects[0].id;
+
+  return {
+    currentProjectId,
+    projects,
+  };
+}

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Edit2, Check, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, Edit2, Sparkles } from 'lucide-react';
 
 export default function MemoryPanel({ memory, onChange, isUpdating, disabled = false }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -10,6 +10,12 @@ export default function MemoryPanel({ memory, onChange, isUpdating, disabled = f
       setIsEditing(false);
     }
   }, [disabled]);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setTempMemory(memory);
+    }
+  }, [isEditing, memory]);
 
   const handleStartEdit = () => {
     if (disabled) return;
@@ -22,7 +28,6 @@ export default function MemoryPanel({ memory, onChange, isUpdating, disabled = f
     setIsEditing(false);
   };
 
-  // Helper to parse bullet points for pretty rendering
   const renderFormattedMemory = () => {
     if (!memory.trim()) {
       return (
@@ -34,17 +39,17 @@ export default function MemoryPanel({ memory, onChange, isUpdating, disabled = f
 
     const lines = memory
       .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
 
     return (
       <ul className="memory-list">
-        {lines.map((line, idx) => {
-          // Clean bullet prefixes
-          const cleanedLine = line.replace(/^[-*•]\s*/, '');
+        {lines.map((line, index) => {
+          const cleanedLine = line.replace(/^[-*\u2022]\s*/, '');
+
           return (
-            <li key={idx} className="memory-item">
-              <span>•</span>
+            <li key={index} className="memory-item">
+              <span>{'\u2022'}</span>
               <div>{cleanedLine}</div>
             </li>
           );
@@ -76,7 +81,7 @@ export default function MemoryPanel({ memory, onChange, isUpdating, disabled = f
           <textarea
             className="memory-textarea"
             value={tempMemory}
-            onChange={(e) => setTempMemory(e.target.value)}
+            onChange={(event) => setTempMemory(event.target.value)}
             placeholder="Write key facts about characters, locations, or past events here..."
             style={{ width: '100%', height: '90%', resize: 'none' }}
           />
