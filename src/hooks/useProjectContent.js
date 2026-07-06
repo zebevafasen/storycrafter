@@ -19,6 +19,8 @@ export default function useProjectContent(currentProject, setCurrentProjectField
     characters: project.characters,
     premise: project.premise,
     memory: project.memory,
+    lastGeneration: project.lastGeneration,
+    generationHistory: project.generationHistory || [],
     whatHappensNext: project.whatHappensNext,
     nextMainEvent: project.nextMainEvent,
     limitType: project.limitType,

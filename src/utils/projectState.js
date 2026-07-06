@@ -1,3 +1,5 @@
+import { STORY_GENERATION_MODES } from './storyGeneration';
+
 const MAX_SNAPSHOTS_PER_PROJECT = 25;
 
 const LEGACY_STORAGE_KEYS = {
@@ -26,6 +28,22 @@ export const PROJECT_CONTENT_DEFAULTS = {
 export const PROJECT_CONTENT_FIELDS = Object.keys(PROJECT_CONTENT_DEFAULTS);
 const TAG_COLLECTION_FIELDS = new Set(['genres', 'themes', 'customTags']);
 
+const LAST_GENERATION_DEFAULTS = {
+  historyEntryId: '',
+  generationMode: STORY_GENERATION_MODES.CONTINUE,
+  baseStoryText: '',
+  baseMemory: '',
+  generatedText: '',
+  whatHappensNext: '',
+  nextMainEvent: '',
+  limitType: 'paragraphs',
+  limitValue: 3,
+  isApplied: false,
+  createdAt: '',
+};
+
+const GENERATION_HISTORY_LIMIT = 100;
+
 function createId(prefix) {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return `${prefix}-${crypto.randomUUID()}`;
@@ -40,6 +58,11 @@ function cleanString(value, fallback = '') {
 
 function cleanArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+}
+
+function cleanNumber(value, fallback = 0) {
+  const parsedValue = Number(value);
+  return Number.isFinite(parsedValue) ? parsedValue : fallback;
 }
 
 export function createCharacter({
@@ -104,6 +127,74 @@ function normalizeSnapshot(snapshot) {
   };
 }
 
+export function createGenerationHistoryEntry({
+  id = createId('generation'),
+  generationMode = STORY_GENERATION_MODES.CONTINUE,
+  source = 'generation',
+  generatedText = '',
+  startIndex = 0,
+  endIndex = startIndex + cleanString(generatedText).length,
+  whatHappensNext = '',
+  nextMainEvent = '',
+  isApplied = true,
+  createdAt = new Date().toISOString(),
+} = {}) {
+  const candidateMode = cleanString(generationMode, STORY_GENERATION_MODES.CONTINUE);
+  const resolvedMode = Object.values(STORY_GENERATION_MODES).includes(candidateMode)
+    ? candidateMode
+    : STORY_GENERATION_MODES.CONTINUE;
+  const resolvedGeneratedText = cleanString(generatedText);
+  const resolvedStartIndex = Math.max(0, cleanNumber(startIndex, 0));
+  const resolvedEndIndex = Math.max(resolvedStartIndex, cleanNumber(endIndex, resolvedStartIndex + resolvedGeneratedText.length));
+
+  return {
+    id: cleanString(id, createId('generation')),
+    generationMode: resolvedMode,
+    source: cleanString(source, 'generation'),
+    generatedText: resolvedGeneratedText,
+    startIndex: resolvedStartIndex,
+    endIndex: resolvedEndIndex,
+    whatHappensNext: cleanString(whatHappensNext),
+    nextMainEvent: cleanString(nextMainEvent),
+    isApplied: Boolean(isApplied),
+    createdAt: cleanString(createdAt, new Date().toISOString()),
+  };
+}
+
+function normalizeLastGeneration(lastGeneration) {
+  if (!lastGeneration || typeof lastGeneration !== 'object') {
+    return null;
+  }
+
+  const candidateMode = cleanString(lastGeneration.generationMode, LAST_GENERATION_DEFAULTS.generationMode);
+
+  return {
+    historyEntryId: cleanString(lastGeneration.historyEntryId, LAST_GENERATION_DEFAULTS.historyEntryId),
+    generationMode: Object.values(STORY_GENERATION_MODES).includes(candidateMode)
+      ? candidateMode
+      : LAST_GENERATION_DEFAULTS.generationMode,
+    baseStoryText: cleanString(lastGeneration.baseStoryText, LAST_GENERATION_DEFAULTS.baseStoryText),
+    baseMemory: cleanString(lastGeneration.baseMemory, LAST_GENERATION_DEFAULTS.baseMemory),
+    generatedText: cleanString(lastGeneration.generatedText, LAST_GENERATION_DEFAULTS.generatedText),
+    whatHappensNext: cleanString(lastGeneration.whatHappensNext, LAST_GENERATION_DEFAULTS.whatHappensNext),
+    nextMainEvent: cleanString(lastGeneration.nextMainEvent, LAST_GENERATION_DEFAULTS.nextMainEvent),
+    limitType: normalizeContentField('limitType', lastGeneration.limitType, LAST_GENERATION_DEFAULTS.limitType),
+    limitValue: normalizeContentField('limitValue', lastGeneration.limitValue, LAST_GENERATION_DEFAULTS.limitValue),
+    isApplied: Boolean(lastGeneration.isApplied),
+    createdAt: cleanString(lastGeneration.createdAt, new Date().toISOString()),
+  };
+}
+
+function normalizeGenerationHistory(generationHistory) {
+  if (!Array.isArray(generationHistory)) {
+    return [];
+  }
+
+  return generationHistory
+    .map((entry) => createGenerationHistoryEntry(entry))
+    .slice(-GENERATION_HISTORY_LIMIT);
+}
+
 function pickProjectContent(project) {
   return normalizeProjectContent(project, PROJECT_CONTENT_DEFAULTS);
 }
@@ -130,6 +221,8 @@ export function createProject({
   createdAt = new Date().toISOString(),
   updatedAt = createdAt,
   content = {},
+  lastGeneration = null,
+  generationHistory = [],
   snapshots = [],
 } = {}) {
   return {
@@ -139,6 +232,8 @@ export function createProject({
     updatedAt,
     ...PROJECT_CONTENT_DEFAULTS,
     ...content,
+    lastGeneration: normalizeLastGeneration(lastGeneration),
+    generationHistory: normalizeGenerationHistory(generationHistory),
     snapshots,
   };
 }
@@ -175,6 +270,8 @@ export function duplicateProject(project) {
   const duplicatedProject = createProject({
     name: `${project.name} Copy`,
     content: pickProjectContent(project),
+    lastGeneration: null,
+    generationHistory: normalizeGenerationHistory(project.generationHistory),
   });
 
   return duplicatedProject;
@@ -193,6 +290,8 @@ export function normalizeProject(rawProject) {
   return {
     ...baseProject,
     id: cleanString(rawProject?.id, baseProject.id),
+    lastGeneration: normalizeLastGeneration(rawProject?.lastGeneration),
+    generationHistory: normalizeGenerationHistory(rawProject?.generationHistory),
     snapshots: Array.isArray(rawProject?.snapshots)
       ? rawProject.snapshots.map((snapshot) => normalizeSnapshot(snapshot)).slice(0, MAX_SNAPSHOTS_PER_PROJECT)
       : [],

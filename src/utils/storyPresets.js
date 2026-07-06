@@ -2,6 +2,28 @@ function sortAlphabetically(values) {
   return [...values].sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
 }
 
+function pickWeightedItem(items, getWeight) {
+  const weightedEntries = items.map((item) => ({
+    item,
+    weight: Math.max(0, getWeight(item)),
+  }));
+  const totalWeight = weightedEntries.reduce((total, entry) => total + entry.weight, 0);
+
+  if (totalWeight <= 0) {
+    return items[Math.floor(Math.random() * items.length)];
+  }
+
+  let threshold = Math.random() * totalWeight;
+  for (const entry of weightedEntries) {
+    threshold -= entry.weight;
+    if (threshold <= 0) {
+      return entry.item;
+    }
+  }
+
+  return weightedEntries[weightedEntries.length - 1]?.item ?? items[0];
+}
+
 export const PRESET_GENRES = sortAlphabetically([
   'Fantasy',
   'Sci-Fi',
@@ -176,7 +198,94 @@ export const PRESET_CUSTOM_TAGS = sortAlphabetically([
   'superpowers',
   'mutants',
   'the beauty of struggle',
+  'pirates',
+  'space opera',
+  'seafaring',
+  'guilds',
+  'mercenaries',
+  'empire',
+  'fallen empire',
+  'rebellion',
+  'civil war',
+  'golden age',
+  'shoulders of giants',
+  'lost knowledge',
 ]);
+
+const TAG_EXCLUSIVE_GROUPS = [
+  ['prehistoric', 'ancient', 'medieval', 'colonial', 'victorian', 'modern day', 'near-future', 'retrofuturistic', 'far-future'],
+  ['urban', 'rural', 'small town', 'megacity', 'floating city', 'frontier', 'single location'],
+  ['underground', 'underwater', 'zero gravity', 'low gravity', 'spacefaring', 'seafaring'],
+  ['rare magic', 'common magic', 'no magic'],
+  ['hard magic', 'soft magic', 'no magic'],
+  ['hard sci-fi', 'soft sci-fi', 'science fantasy'],
+  ['post-apocalyptic', 'post-collapse', 'golden age'],
+  ['female protagonist', 'male protagonist'],
+];
+
+const TAG_INCOMPATIBILITIES = {
+  'no magic': ['common magic', 'hard magic', 'high-fantasy', 'magic-system', 'rare magic', 'soft magic', 'supernatural abilities'],
+  'common magic': ['hard sci-fi', 'no magic'],
+  'rare magic': ['hard sci-fi', 'no magic'],
+  'hard magic': ['hard sci-fi', 'no magic'],
+  'soft magic': ['hard sci-fi', 'no magic'],
+  'high-fantasy': ['hard sci-fi'],
+  'hard sci-fi': ['common magic', 'hard magic', 'high-fantasy', 'rare magic', 'soft magic', 'supernatural abilities'],
+  'underwater': ['spacefaring', 'zero gravity'],
+  'zero gravity': ['seafaring', 'underwater'],
+  'spacefaring': ['underwater'],
+};
+
+const GENRE_TAG_RULES = {
+  Action: {
+    preferredTags: ['high-stakes', 'military', 'monster hunting', 'rebellion', 'survivalist', 'time pressure', 'war'],
+  },
+  Adventure: {
+    preferredTags: ['frontier', 'globetrotting', 'lost civilization', 'road trip', 'ruins', 'wilderness'],
+  },
+  Comedy: {
+    preferredTags: ['cozy', 'dialogue heavy', 'dreamlike', 'found family', 'low-stakes', 'small town'],
+  },
+  Crime: {
+    preferredTags: ['antihero', 'dialogue heavy', 'grounded', 'heist', 'morally gray', 'small town', 'urban'],
+  },
+  Drama: {
+    preferredTags: ['dialogue heavy', 'grounded', 'intimate', 'realistic', 'slow-burn'],
+  },
+  Erotica: {
+    preferredTags: ['erotic', 'intimate', 'nsfw', 'sex', 'slow-burn'],
+  },
+  Fantasy: {
+    preferredTags: ['alchemy', 'common magic', 'gothic', 'hard magic', 'high-fantasy', 'low-fantasy', 'magic-system', 'medieval', 'rare magic', 'soft magic'],
+    blockedTags: ['androids', 'artificial intelligence', 'cybernetics', 'cyborgs', 'hard sci-fi', 'near-future', 'robots', 'transhumanism'],
+  },
+  Historical: {
+    preferredTags: ['ancient', 'colonial', 'medieval', 'victorian', 'wartime', 'western'],
+    blockedTags: ['androids', 'artificial intelligence', 'cybernetics', 'cyborgs', 'far-future', 'near-future', 'robots', 'spacefaring', 'transhumanism', 'zero gravity'],
+  },
+  Horror: {
+    preferredTags: ['bleak', 'body horror', 'eldritch', 'folk horror', 'gothic', 'isolated', 'surreal'],
+  },
+  Mystery: {
+    preferredTags: ['dialogue heavy', 'grounded', 'isolated', 'political intrigue', 'ruins', 'single location', 'small town'],
+  },
+  Romance: {
+    preferredTags: ['cozy', 'forbidden romance', 'hopeful', 'intimate', 'slow-burn'],
+  },
+  'Sci-Fi': {
+    preferredTags: ['advanced technology', 'androids', 'artificial intelligence', 'cybernetics', 'cyborgs', 'far-future', 'faster than light', 'hard sci-fi', 'near-future', 'robots', 'space opera', 'spacefaring', 'transhumanism'],
+    blockedTags: ['alchemy', 'common magic', 'hard magic', 'high-fantasy', 'magic-system', 'medieval', 'rare magic', 'soft magic'],
+  },
+  'Slice of Life': {
+    preferredTags: ['cozy', 'dialogue heavy', 'grounded', 'intimate', 'low-stakes', 'modern day', 'small town'],
+  },
+  Supernatural: {
+    preferredTags: ['common magic', 'gothic', 'rare magic', 'soft magic', 'supernatural abilities'],
+  },
+  Thriller: {
+    preferredTags: ['bleak', 'grounded', 'high-stakes', 'isolated', 'political intrigue', 'road trip', 'time pressure'],
+  },
+};
 
 export const PRESET_CHARACTER_TAGS = sortAlphabetically([
   'adult',
@@ -262,6 +371,12 @@ export const PRESET_CHARACTER_TAGS = sortAlphabetically([
   'gigantic penis',
   'glasses',
   'dark hair',
+  'human',
+  'elf',
+  'dwarf',
+  'orc',
+  'halfling',
+  'alien',
 ]);
 
 function clampSelectionCount(length, min, max) {
@@ -285,4 +400,72 @@ export function pickRandomPresets(presets, { min = 1, max = 1 } = {}) {
 
 export function sortPresetSelection(values) {
   return sortAlphabetically([...new Set(values)]);
+}
+
+function getBlockedTagsForGenres(genres = []) {
+  if (!genres.length) {
+    return new Set();
+  }
+
+  const blockedSets = genres
+    .map((genre) => new Set(GENRE_TAG_RULES[genre]?.blockedTags || []))
+    .filter((set) => set.size > 0);
+
+  if (!blockedSets.length) {
+    return new Set();
+  }
+
+  return new Set(
+    [...blockedSets[0]].filter((tag) => blockedSets.every((set) => set.has(tag))),
+  );
+}
+
+function getPreferredWeight(tag, genres = []) {
+  return genres.reduce((weight, genre) => (
+    weight + ((GENRE_TAG_RULES[genre]?.preferredTags || []).includes(tag) ? 2 : 0)
+  ), 1);
+}
+
+function conflictsWithSelection(candidateTag, selectedTags) {
+  const candidateConflicts = new Set(TAG_INCOMPATIBILITIES[candidateTag] || []);
+
+  if (selectedTags.some((selectedTag) => candidateConflicts.has(selectedTag))) {
+    return true;
+  }
+
+  for (const selectedTag of selectedTags) {
+    const selectedConflicts = TAG_INCOMPATIBILITIES[selectedTag] || [];
+    if (selectedConflicts.includes(candidateTag)) {
+      return true;
+    }
+  }
+
+  return TAG_EXCLUSIVE_GROUPS.some((group) => (
+    group.includes(candidateTag) && selectedTags.some((selectedTag) => group.includes(selectedTag))
+  ));
+}
+
+export function pickRandomCustomTags({
+  genres = [],
+  min = 5,
+  max = 8,
+} = {}) {
+  const selectionCount = clampSelectionCount(PRESET_CUSTOM_TAGS.length, min, max);
+  const blockedTags = getBlockedTagsForGenres(genres);
+  const availableTags = PRESET_CUSTOM_TAGS.filter((tag) => !blockedTags.has(tag));
+  const selectedTags = [];
+
+  while (selectedTags.length < selectionCount && availableTags.length > 0) {
+    const validCandidates = availableTags.filter((tag) => !conflictsWithSelection(tag, selectedTags));
+    const candidatePool = validCandidates.length > 0 ? validCandidates : availableTags;
+    const pickedTag = pickWeightedItem(candidatePool, (tag) => getPreferredWeight(tag, genres));
+
+    selectedTags.push(pickedTag);
+    const pickedIndex = availableTags.indexOf(pickedTag);
+    if (pickedIndex >= 0) {
+      availableTags.splice(pickedIndex, 1);
+    }
+  }
+
+  return sortAlphabetically(selectedTags);
 }

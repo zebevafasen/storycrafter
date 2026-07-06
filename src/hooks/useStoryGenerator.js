@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { generateNextSegment, updateMemory } from '../services/openrouter';
+import { generateStorySegment as requestStorySegment, updateMemory } from '../services/openrouter';
+import { STORY_GENERATION_MODES } from '../utils/storyGeneration';
 
 export default function useStoryGenerator({
   config,
@@ -54,33 +55,47 @@ export default function useStoryGenerator({
     }
   };
 
-  const generateStorySegment = async () => {
+  const generateStorySegment = async (overrides = {}) => {
     if (!config.apiKey) {
       onToast('Please configure your OpenRouter API Key in Settings first.');
       return { requiresApiKey: true };
     }
 
     setIsGenerating(true);
-    const originalText = storyText.trim();
+    const sourceStoryText = overrides.storyText ?? storyText;
+    const sourceMemory = overrides.memory ?? memory;
+    const sourceWhatHappensNext = overrides.whatHappensNext ?? whatHappensNext;
+    const sourceNextMainEvent = overrides.nextMainEvent ?? nextMainEvent;
+    const sourceLimitType = overrides.limitType ?? limitType;
+    const sourceLimitValue = overrides.limitValue ?? limitValue;
+    const sourceGenerationMode = overrides.mode ?? STORY_GENERATION_MODES.CONTINUE;
+    const originalText = sourceStoryText.trim();
     let streamedText = '';
 
     try {
-      const finalLimitValue = limitType === 'nolimit' ? null : Number(limitValue);
+      const defaultLimitValue = sourceLimitType === 'words' ? 250 : 3;
+      const parsedLimitValue = Number(sourceLimitValue);
+      const finalLimitValue = sourceLimitType === 'nolimit'
+        ? null
+        : (sourceLimitValue === '' || Number.isNaN(parsedLimitValue) || parsedLimitValue <= 0
+          ? defaultLimitValue
+          : parsedLimitValue);
 
-      const newText = await generateNextSegment({
+      const newText = await requestStorySegment({
         apiKey: config.apiKey,
         model: config.model,
         temperature: config.temperature,
+        mode: sourceGenerationMode,
         genres,
         themes,
         tags,
         characters,
         premise,
-        memory,
+        memory: sourceMemory,
         storyText: originalText,
-        whatHappensNext,
-        nextMainEvent,
-        limitType,
+        whatHappensNext: sourceWhatHappensNext,
+        nextMainEvent: sourceNextMainEvent,
+        limitType: sourceLimitType,
         limitValue: finalLimitValue,
         onChunk: (textSoFar) => {
           streamedText = textSoFar;
@@ -98,7 +113,7 @@ export default function useStoryGenerator({
       onToast('Story segment generated');
 
       void syncMemory({
-        currentMemory: memory,
+        currentMemory: sourceMemory,
         newSegmentText: newText.trim(),
         successMessage: 'Story Memory automatically updated',
       }).then((memoryResult) => {
@@ -107,7 +122,18 @@ export default function useStoryGenerator({
         }
       });
 
-      return { success: true, finalStoryText };
+      return {
+        success: true,
+        generationMode: sourceGenerationMode,
+        finalStoryText,
+        generatedSegmentText: newText.trim(),
+        baseStoryText: originalText,
+        baseMemory: sourceMemory,
+        whatHappensNext: sourceWhatHappensNext,
+        nextMainEvent: sourceNextMainEvent,
+        limitType: sourceLimitType,
+        limitValue: sourceLimitType === 'nolimit' ? null : finalLimitValue,
+      };
     } catch (error) {
       console.error(error);
       onToast(`Generation failed: ${error.message}`);
