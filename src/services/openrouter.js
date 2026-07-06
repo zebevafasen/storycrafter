@@ -1,0 +1,318 @@
+/**
+ * OpenRouter API Service for StoryCrafter
+ */
+
+const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Default model specified by the user
+export const DEFAULT_MODEL = 'deepseek/deepseek-chat';
+
+export const AVAILABLE_MODELS = [
+  // --- DeepSeek ---
+  { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3 (Chat)' },
+  { id: 'deepseek/deepseek-coder', name: 'DeepSeek Coder V2' },
+  
+  // --- Anthropic ---
+  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+  { id: 'anthropic/claude-3.5-haiku', name: 'Claude 3.5 Haiku' },
+  { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' },
+  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku' },
+
+  // --- OpenAI ---
+  { id: 'openai/gpt-4o', name: 'GPT-4o' },
+  { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini' },
+  { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+  { id: 'openai/o1-preview', name: 'OpenAI o1 Preview' },
+  { id: 'openai/o1-mini', name: 'OpenAI o1 Mini' },
+  { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
+
+  // --- Meta Llama ---
+  { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B Instruct' },
+  { id: 'meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B Instruct' },
+  { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B Instruct' },
+  { id: 'meta-llama/llama-3.2-3b-instruct', name: 'Llama 3.2 3B Instruct' },
+  { id: 'meta-llama/llama-3.2-1b-instruct', name: 'Llama 3.2 1B Instruct' },
+  { id: 'meta-llama/llama-3-8b-instruct', name: 'Llama 3 8B' },
+  { id: 'meta-llama/llama-3-70b-instruct', name: 'Llama 3 70B' },
+
+  // --- Google Gemini ---
+  { id: 'google/gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash (Exp)' },
+  { id: 'google/gemini-pro-1.5', name: 'Gemini 1.5 Pro' },
+  { id: 'google/gemini-flash-1.5', name: 'Gemini 1.5 Flash' },
+  { id: 'google/gemini-flash-1.5-8b', name: 'Gemini 1.5 Flash 8B' },
+
+  // --- Mistral ---
+  { id: 'mistralai/mistral-large', name: 'Mistral Large 2' },
+  { id: 'mistralai/mixtral-8x22b-instruct', name: 'Mixtral 8x22B' },
+  { id: 'mistralai/mixtral-8x7b-instruct', name: 'Mixtral 8x7B' },
+  { id: 'mistralai/mistral-nemo', name: 'Mistral Nemo 12B' },
+
+  // --- Qwen ---
+  { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B' },
+  { id: 'qwen/qwen-2.5-14b-instruct', name: 'Qwen 2.5 14B' },
+  { id: 'qwen/qwen-2.5-7b-instruct', name: 'Qwen 2.5 7B' },
+  { id: 'qwen/qwen-2.5-coder-32b-instruct', name: 'Qwen 2.5 Coder 32B' },
+
+  // --- Cohere ---
+  { id: 'cohere/command-r-plus', name: 'Command R+' },
+  { id: 'cohere/command-r', name: 'Command R' },
+
+  // --- Microsoft ---
+  { id: 'microsoft/phi-3-medium-128k-instruct', name: 'Phi 3 Medium 128k' },
+  { id: 'microsoft/phi-3-mini-128k-instruct', name: 'Phi 3 Mini 128k' },
+
+  // --- Creative / Roleplay Specials ---
+  { id: 'gryphe/mythomax-l2-13b', name: 'MythoMax L2 13B' },
+  { id: 'nousresearch/hermes-3-llama-3.1-405b', name: 'Hermes 3 Llama 3.1 405B' },
+  { id: 'nousresearch/hermes-3-llama-3.1-70b', name: 'Hermes 3 Llama 3.1 70B' },
+  { id: 'alpindale/goliath-120b', name: 'Goliath 120B' },
+  { id: 'microsoft/wizardlm-2-8x22b', name: 'WizardLM-2 8x22B' },
+  { id: 'sao/llama-3-yente-11b', name: 'Llama 3 Yente 11B (Creative)' },
+  { id: 'undi95/toppy-m-7b', name: 'Toppy M 7B (Creative)' },
+  { id: 'sao/soliloquy-l3-8b', name: 'Soliloquy L3 8B (Roleplay)' },
+  { id: 'sophosympatheia/rogue-rose-103b-v0.2', name: 'Rogue Rose 103B' },
+  { id: 'intel/neural-chat-7b-v3-3', name: 'Neural Chat 7B' },
+  { id: 'pygmalionai/mythalion-13b', name: 'Mythalion 13B (Roleplay)' },
+  { id: 'koboldai/psyfighter-13b', name: 'Psyfighter 13B (Creative)' },
+  { id: 'openchat/openchat-7b', name: 'OpenChat 7B' }
+];
+
+/**
+ * Helper to make requests to OpenRouter
+ */
+async function makeOpenRouterRequest(apiKey, model, messages, temperature = 0.7) {
+  if (!apiKey) {
+    throw new Error('OpenRouter API key is missing. Please set it in the Settings panel.');
+  }
+
+  const response = await fetch(OPENROUTER_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://github.com/google/antigravity', // Required by OpenRouter
+      'X-Title': 'StoryCrafter AI Co-Writer', // Required by OpenRouter
+    },
+    body: JSON.stringify({
+      model: model || DEFAULT_MODEL,
+      messages,
+      temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
+    throw new Error(message);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content.trim();
+}
+
+/**
+ * Generates the next part of the story
+ */
+export async function generateNextSegment({
+  apiKey,
+  model,
+  temperature = 0.7,
+  genres = [],
+  themes = [],
+  tags = [],
+  premise = '',
+  memory = '',
+  storyText = '',
+  whatHappensNext = '',
+  nextMainEvent = '',
+  limitType = 'words', // 'words' | 'paragraphs' | 'nolimit'
+  limitValue = 250,
+  onChunk = null, // Optional callback for streaming tokens
+}) {
+  // Format constraint instruction
+  let lengthConstraint = 'Write a natural continuation. Maintain the existing writing style.';
+  if (limitType === 'words' && limitValue) {
+    lengthConstraint = `Aim for approximately ${limitValue} words. Focus on a pacing that matches the story so far.`;
+  } else if (limitType === 'paragraphs' && limitValue) {
+    lengthConstraint = `Write exactly ${limitValue} paragraph(s). Do not write more than ${limitValue} paragraphs.`;
+  } else if (limitType === 'nolimit') {
+    lengthConstraint = 'Write a natural, complete segment. No strict word or paragraph limits, but keep it readable.';
+  }
+
+  // Format system instruction
+  const systemPrompt = `You are an expert creative writer and co-author. Your goal is to write the next segment of the story, maintaining the tone, style, and narrative flow of the story so far.
+
+Adhere strictly to these story details:
+${genres.length > 0 ? `- Genres: ${genres.join(', ')}` : ''}
+${themes.length > 0 ? `- Themes: ${themes.join(', ')}` : ''}
+${tags.length > 0 ? `- Tags: ${tags.join(', ')}` : ''}
+${premise ? `- Premise/Summary: ${premise}` : ''}
+
+Background Story Memory (Key Facts/Characters):
+${memory || 'No established memory yet.'}
+
+Length Constraint:
+${lengthConstraint}`;
+
+  // Assemble recent story for context (last ~4000 characters to prevent context bloating)
+  const recentStory = storyText ? storyText.slice(-4000) : '';
+
+  // Format user instruction
+  let userInstruction = 'Continue the story based on the details above.\n';
+  if (whatHappensNext) {
+    userInstruction += `- What should happen next: ${whatHappensNext}\n`;
+  }
+  if (nextMainEvent) {
+    userInstruction += `- Next main event/goal to progress towards: ${nextMainEvent}\n`;
+  }
+
+  const userPrompt = `Here is the story so far:
+---
+${recentStory || '(The story is just beginning.)'}
+---
+
+Instructions for this new segment:
+${userInstruction}
+Write the next part of the story now:`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt }
+  ];
+
+  if (onChunk) {
+    if (!apiKey) {
+      throw new Error('OpenRouter API key is missing. Please set it in the Settings panel.');
+    }
+
+    const response = await fetch(OPENROUTER_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://github.com/google/antigravity',
+        'X-Title': 'StoryCrafter AI Co-Writer',
+      },
+      body: JSON.stringify({
+        model: model || DEFAULT_MODEL,
+        messages,
+        temperature,
+        stream: true,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
+      throw new Error(message);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let fullText = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine) continue;
+          if (cleanLine === 'data: [DONE]') continue;
+
+          if (cleanLine.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(cleanLine.substring(6));
+              const chunk = parsed.choices?.[0]?.delta?.content || '';
+              if (chunk) {
+                fullText += chunk;
+                onChunk(fullText, chunk);
+              }
+            } catch (e) {
+              console.warn('Error parsing SSE line:', cleanLine, e);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    
+    return fullText.trim();
+  }
+
+  return makeOpenRouterRequest(apiKey, model, messages, temperature);
+}
+
+/**
+ * Automatically updates the story memory list in the background
+ */
+export async function updateMemory({
+  apiKey,
+  model,
+  currentMemory = '',
+  premise = '',
+  newSegmentText = '',
+}) {
+  const systemPrompt = `You are a story memory manager. Your task is to update the summary and key facts of a story based on the latest story segment additions.
+Keep the memory concise, structured, and focused on:
+- Active characters (their statuses, relationships, and inventory)
+- The current setting/location
+- Key plot developments or secrets revealed
+- Active quests or short-term goals
+
+Do not write the story. Only output the updated facts as structured bullet points.`;
+
+  const userPrompt = `Current Memory:
+${currentMemory || 'No memory yet.'}
+
+Story Premise:
+${premise || 'No premise set.'}
+
+Newest Story Segment:
+---
+${newSegmentText}
+---
+
+Generate the updated memory block based on this new information. Keep it under 250 words and format as a bulleted list.`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt }
+  ];
+
+  // We can use a faster/cheaper model for memory or the user's selected model. Let's use the selected model.
+  return makeOpenRouterRequest(apiKey, model, messages, 0.3);
+}
+
+/**
+ * Fetches the complete, real-time list of models available on OpenRouter
+ */
+export async function fetchOpenRouterModels() {
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/models');
+    if (!response.ok) throw new Error('Failed to fetch models list');
+    const json = await response.json();
+    if (!json.data || !Array.isArray(json.data)) {
+      throw new Error('Invalid response structure from OpenRouter');
+    }
+    
+    // Map to normalized { id, name } format
+    const models = json.data.map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+    }));
+    
+    // Sort models alphabetically by name
+    return models.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (e) {
+    console.warn('Could not fetch real-time OpenRouter models:', e);
+    return null;
+  }
+}
