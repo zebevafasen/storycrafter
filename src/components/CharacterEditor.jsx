@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, UserRound } from 'lucide-react';
+import { Sparkles, Trash2, UserRound } from 'lucide-react';
 import TagInput from './TagInput';
 import { PRESET_CHARACTER_TAGS } from '../utils/storyPresets';
 
@@ -7,7 +7,9 @@ export default function CharacterEditor({
   character,
   index,
   disabled = false,
+  isGeneratingDescription = false,
   onChange,
+  onGenerateDescription,
   onRemove,
 }) {
   const displayName = character.name.trim() || `Character ${index + 1}`;
@@ -59,14 +61,26 @@ export default function CharacterEditor({
       />
 
       <div className="form-group">
-        <label htmlFor={`character-description-${character.id}`}>Description</label>
+        <div className="setup-field-header">
+          <label htmlFor={`character-description-${character.id}`}>Description</label>
+          <button
+            type="button"
+            className="setup-inline-action"
+            onClick={onGenerateDescription}
+            disabled={disabled || isGeneratingDescription}
+            title={`Generate ${displayName}'s description from tags and story setup`}
+          >
+            <Sparkles size={14} style={isGeneratingDescription ? { animation: 'spin 1.5s linear infinite' } : undefined} />
+            {isGeneratingDescription ? 'Generating...' : 'Draft Description'}
+          </button>
+        </div>
         <textarea
           id={`character-description-${character.id}`}
           value={character.description}
           onChange={(event) => updateField('description', event.target.value)}
           placeholder="Appearance, relationships, role in the story, secrets, quirks..."
           style={{ minHeight: '100px', resize: 'vertical', fontSize: '0.82rem' }}
-          disabled={disabled}
+          disabled={disabled || isGeneratingDescription}
         />
       </div>
     </article>

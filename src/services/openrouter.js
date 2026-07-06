@@ -2,10 +2,12 @@
  * OpenRouter API Service for StoryCrafter
  */
 import {
+  buildCharacterDescriptionMessages,
   buildMemoryUpdateMessages,
-  buildNextSegmentMessages,
+  buildStorySegmentMessages,
   buildPremiseFromSetupMessages,
 } from '../utils/storyPrompts';
+import { STORY_GENERATION_MODES } from '../utils/storyGeneration';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -114,13 +116,87 @@ async function makeOpenRouterRequest(apiKey, model, messages, temperature = 0.7)
   const data = await response.json();
   return data.choices[0].message.content.trim();
 }
+async function makeOpenRouterStreamingRequest({
+  apiKey,
+  model,
+  messages,
+  temperature = 0.7,
+  onChunk,
+}) {
+  if (!apiKey) {
+    throw new Error('OpenRouter API key is missing. Please set it in the Settings panel.');
+  }
+
+  const response = await fetch(OPENROUTER_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://github.com/google/antigravity',
+      'X-Title': 'StoryCrafter AI Co-Writer',
+    },
+    body: JSON.stringify({
+      model: model || DEFAULT_MODEL,
+      messages,
+      temperature,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
+    throw new Error(message);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let fullText = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const cleanLine = line.trim();
+        if (!cleanLine) continue;
+        if (cleanLine === 'data: [DONE]') continue;
+
+        if (cleanLine.startsWith('data: ')) {
+          try {
+            const parsed = JSON.parse(cleanLine.substring(6));
+            const chunk = parsed.choices?.[0]?.delta?.content || '';
+            if (chunk) {
+              fullText += chunk;
+              onChunk(fullText, chunk);
+            }
+          } catch (error) {
+            console.warn('Error parsing SSE line:', cleanLine, error);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return fullText.trim();
+}
+
 /**
- * Generates the next part of the story
+ * Generates a story segment using an explicit writing mode
  */
-export async function generateNextSegment({
+export async function generateStorySegment({
   apiKey,
   model,
   temperature = 0.7,
+  mode = STORY_GENERATION_MODES.CONTINUE,
   genres = [],
   themes = [],
   tags = [],
@@ -134,7 +210,8 @@ export async function generateNextSegment({
   limitValue = 250,
   onChunk = null, // Optional callback for streaming tokens
 }) {
-  const messages = buildNextSegmentMessages({
+  const messages = buildStorySegmentMessages({
+    mode,
     genres,
     themes,
     tags,
@@ -149,70 +226,13 @@ export async function generateNextSegment({
   });
 
   if (onChunk) {
-    if (!apiKey) {
-      throw new Error('OpenRouter API key is missing. Please set it in the Settings panel.');
-    }
-
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://github.com/google/antigravity',
-        'X-Title': 'StoryCrafter AI Co-Writer',
-      },
-      body: JSON.stringify({
-        model: model || DEFAULT_MODEL,
-        messages,
-        temperature,
-        stream: true,
-      }),
+    return makeOpenRouterStreamingRequest({
+      apiKey,
+      model,
+      messages,
+      temperature,
+      onChunk,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
-      throw new Error(message);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let buffer = '';
-    let fullText = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const cleanLine = line.trim();
-          if (!cleanLine) continue;
-          if (cleanLine === 'data: [DONE]') continue;
-
-          if (cleanLine.startsWith('data: ')) {
-            try {
-              const parsed = JSON.parse(cleanLine.substring(6));
-              const chunk = parsed.choices?.[0]?.delta?.content || '';
-              if (chunk) {
-                fullText += chunk;
-                onChunk(fullText, chunk);
-              }
-            } catch (e) {
-              console.warn('Error parsing SSE line:', cleanLine, e);
-            }
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    
-    return fullText.trim();
   }
 
   return makeOpenRouterRequest(apiKey, model, messages, temperature);
@@ -261,6 +281,28 @@ export async function generatePremiseFromSetup({
   });
 
   return makeOpenRouterRequest(apiKey, model, messages, 0.9);
+}
+
+export async function generateCharacterDescription({
+  apiKey,
+  model,
+  character,
+  genres = [],
+  themes = [],
+  tags = [],
+  premise = '',
+  otherCharacters = [],
+}) {
+  const messages = buildCharacterDescriptionMessages({
+    character,
+    genres,
+    themes,
+    tags,
+    premise,
+    otherCharacters,
+  });
+
+  return makeOpenRouterRequest(apiKey, model, messages, 0.8);
 }
 
 /**

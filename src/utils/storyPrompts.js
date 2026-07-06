@@ -1,3 +1,7 @@
+import {
+  STORY_GENERATION_MODES,
+} from './storyGeneration';
+
 function formatCharactersContext(characters = []) {
   if (!Array.isArray(characters) || characters.length === 0) {
     return 'No character profiles provided.';
@@ -32,7 +36,158 @@ function buildLengthConstraint(limitType, limitValue) {
   return 'Write a natural continuation. Maintain the existing writing style.';
 }
 
-export function buildNextSegmentMessages({
+function formatSetupDetails({
+  genres = [],
+  themes = [],
+  tags = [],
+  characters = [],
+  premise = '',
+}) {
+  return `Story Setup:
+${genres.length > 0 ? `- Genres: ${genres.join(', ')}` : '- Genres: Not specified'}
+${themes.length > 0 ? `- Themes: ${themes.join(', ')}` : '- Themes: Not specified'}
+${tags.length > 0 ? `- Tags: ${tags.join(', ')}` : '- Tags: Not specified'}
+${premise ? `- Premise/Summary: ${premise}` : '- Premise/Summary: Not specified'}
+
+Character Profiles:
+${formatCharactersContext(characters)}`;
+}
+
+function buildSharedStorySystemPrompt({
+  modeInstruction,
+  setupDetails,
+  memory,
+  lengthConstraint,
+}) {
+  return `You are a fiction co-writer producing polished prose for a live manuscript.
+
+Your output must always be story prose, never a summary, outline, teaser, commentary, or explanation.
+
+Core writing rules:
+- Match the established tone, tense, point of view, pacing, and narrative intensity.
+- Write through concrete action, dialogue, sensory detail, thought, and consequence.
+- Use the story setup, character profiles, premise, and memory as hard guidance.
+- Prioritize specificity and momentum over generic dramatic phrasing.
+- Introduce only details that fit naturally with the established setup.
+- Do not repeat the same information in slightly different words.
+- Do not narrate like a back-cover blurb, chapter recap, outline, or moral summary.
+- Do not stall for atmosphere alone; each segment should materially advance the scene or situation.
+- Do not end with vague teaser lines, rhetorical foreshadowing, or "the story continues" energy.
+- Avoid endings like "only time would tell," "the night stretched ahead of them," "what came next remained uncertain," or similar fade-outs.
+- End on something concrete inside the scene: an action, discovery, decision, exchange, reversal, or grounded image.
+
+Mode-specific objective:
+${modeInstruction}
+
+${setupDetails}
+
+Background Story Memory:
+${memory || 'No established memory yet.'}
+
+Length Constraint:
+${lengthConstraint}`;
+}
+
+function buildStoryExcerpt(storyText = '') {
+  const trimmedStoryText = storyText.trim();
+  return trimmedStoryText ? trimmedStoryText.slice(-5000) : '';
+}
+
+export function buildStartWritingMessages({
+  genres = [],
+  themes = [],
+  tags = [],
+  characters = [],
+  premise = '',
+  whatHappensNext = '',
+  limitType = 'words',
+  limitValue = 250,
+}) {
+  const lengthConstraint = buildLengthConstraint(limitType, limitValue);
+  const setupDetails = formatSetupDetails({
+    genres,
+    themes,
+    tags,
+    characters,
+    premise,
+  });
+
+  const systemPrompt = buildSharedStorySystemPrompt({
+    modeInstruction: 'Start the manuscript from scratch using only the provided setup. Open with actual story prose immediately and establish a compelling first beat rather than explaining the premise from a distance.',
+    setupDetails,
+    memory: '',
+    lengthConstraint,
+  });
+
+  const openingBeat = whatHappensNext.trim()
+    ? `Optional opening beat to incorporate if it fits naturally:
+- ${whatHappensNext.trim()}
+
+`
+    : '';
+
+  const userPrompt = `There is no manuscript yet.
+
+${openingBeat}Write the opening segment now.
+- Begin directly with the story itself.
+- Do not preface the prose with explanations.
+- Establish character, setting, tone, and immediate motion as naturally as possible.`;
+
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+}
+
+export function buildContinueWritingMessages({
+  genres = [],
+  themes = [],
+  tags = [],
+  characters = [],
+  premise = '',
+  memory = '',
+  storyText = '',
+  whatHappensNext = '',
+  limitType = 'words',
+  limitValue = 250,
+}) {
+  const lengthConstraint = buildLengthConstraint(limitType, limitValue);
+  const setupDetails = formatSetupDetails({
+    genres,
+    themes,
+    tags,
+    characters,
+    premise,
+  });
+
+  const systemPrompt = buildSharedStorySystemPrompt({
+    modeInstruction: 'Continue the existing manuscript so the new prose feels inseparable from what is already written. Build from the most recent prose first, while staying consistent with the broader memory.',
+    setupDetails,
+    memory,
+    lengthConstraint,
+  });
+
+  const recentStory = buildStoryExcerpt(storyText);
+  const microInstruction = whatHappensNext.trim()
+    ? `- Optional immediate direction for this segment: ${whatHappensNext.trim()}\n`
+    : '';
+
+  const userPrompt = `Recent manuscript excerpt:
+---
+${recentStory || '(No manuscript excerpt available.)'}
+---
+
+Instructions for this new segment:
+- Continue directly from the manuscript excerpt above.
+${microInstruction}Write the next part of the story now.`;
+
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+}
+
+export function buildContinueTowardGoalMessages({
   genres = [],
   themes = [],
   tags = [],
@@ -46,60 +201,65 @@ export function buildNextSegmentMessages({
   limitValue = 250,
 }) {
   const lengthConstraint = buildLengthConstraint(limitType, limitValue);
+  const setupDetails = formatSetupDetails({
+    genres,
+    themes,
+    tags,
+    characters,
+    premise,
+  });
 
-  const systemPrompt = `You are a fiction co-writer continuing an existing story.
+  const systemPrompt = buildSharedStorySystemPrompt({
+    modeInstruction: 'Continue the current manuscript while steering it toward the provided next main event or goal. Treat that goal as directional guidance, not a requirement to resolve it fully in this single segment. Make natural progress through setup, complication, discovery, travel, debate, or escalation as needed.',
+    setupDetails,
+    memory,
+    lengthConstraint,
+  });
 
-Your job is to write the next segment so it feels like a true continuation of the current manuscript, not a summary, outline, teaser, or ending.
+  const recentStory = buildStoryExcerpt(storyText);
+  const microInstruction = whatHappensNext.trim()
+    ? `- Optional immediate beat to fold in if it fits: ${whatHappensNext.trim()}\n`
+    : '';
 
-Writing rules:
-- Match the existing tone, tense, point of view, and narrative intensity of the story so far.
-- Continue the scene through concrete action, dialogue, observation, and consequence.
-- Prioritize specificity over generic dramatic phrasing.
-- Use the provided genres, themes, tags, character profiles, premise, and memory as hard guidance.
-- Move the story forward in a meaningful way rather than stalling or restating what is already known.
-- Do not narrate like a back-cover blurb, moral summary, chapter recap, or outline.
-- Do not end with vague teaser lines, rhetorical foreshadowing, or "the story continues" energy.
-- Avoid endings like "only time would tell," "the night stretched ahead of them," "what came next remained uncertain," or similar open-ended fade-outs.
-- End on something concrete inside the story: an action, decision, line of dialogue, discovery, reversal, or vivid image grounded in the scene.
-
-Adhere strictly to these story details:
-${genres.length > 0 ? `- Genres: ${genres.join(', ')}` : ''}
-${themes.length > 0 ? `- Themes: ${themes.join(', ')}` : ''}
-${tags.length > 0 ? `- Tags: ${tags.join(', ')}` : ''}
-${premise ? `- Premise/Summary: ${premise}` : ''}
-
-Character Profiles:
-${formatCharactersContext(characters)}
-
-Background Story Memory (Key Facts/Characters):
-${memory || 'No established memory yet.'}
-
-Length Constraint:
-${lengthConstraint}`;
-
-  const recentStory = storyText ? storyText.slice(-4000) : '';
-
-  let userInstruction = 'Continue the story based on the details above.\n';
-  if (whatHappensNext) {
-    userInstruction += `- What should happen next: ${whatHappensNext}\n`;
-  }
-  if (nextMainEvent) {
-    userInstruction += `- Next main event/goal to progress towards: ${nextMainEvent}\n`;
-  }
-
-  const userPrompt = `Here is the story so far:
+  const userPrompt = `Recent manuscript excerpt:
 ---
-${recentStory || '(The story is just beginning.)'}
+${recentStory || '(No manuscript excerpt available.)'}
 ---
+
+Directional target for the broader scene flow:
+- Next main event or goal: ${nextMainEvent.trim() || 'Not specified'}
 
 Instructions for this new segment:
-${userInstruction}
-Write the next part of the story now:`;
+- Continue directly from the manuscript excerpt above.
+- Start moving the story toward the target naturally.
+- You do not need to complete or fully reach the target in this one segment.
+- Prefer believable progress over abrupt payoff.
+${microInstruction}Write the next part of the story now.`;
 
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ];
+}
+
+export function buildStorySegmentMessages({
+  mode = STORY_GENERATION_MODES.CONTINUE,
+  ...context
+}) {
+  if (mode === STORY_GENERATION_MODES.START) {
+    return buildStartWritingMessages(context);
+  }
+
+  if (mode === STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL) {
+    return buildContinueTowardGoalMessages(context);
+  }
+
+  return buildContinueWritingMessages(context);
+}
+
+export function buildNextSegmentMessages(context) {
+  const resolvedMode = context?.mode || STORY_GENERATION_MODES.CONTINUE;
+  return buildStorySegmentMessages({ ...context, mode: resolvedMode });
 }
 
 export function buildMemoryUpdateMessages({
@@ -165,6 +325,49 @@ ${formatCharactersContext(characters)}
 ${currentPremise ? `- Existing notes to refine or replace: ${currentPremise}` : ''}
 
 Write the summary now.`;
+
+  return [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+}
+
+export function buildCharacterDescriptionMessages({
+  character,
+  genres = [],
+  themes = [],
+  tags = [],
+  premise = '',
+  otherCharacters = [],
+}) {
+  const name = character?.name?.trim() || 'This character';
+  const characterTags = Array.isArray(character?.tags) && character.tags.length > 0
+    ? character.tags.join(', ')
+    : 'Not specified';
+  const existingDescription = character?.description?.trim() || '';
+
+  const systemPrompt = `You are a fiction assistant helping a writer flesh out a single character for a story.
+
+Write a concise, vivid in-world character description that:
+- Fits naturally with the provided story setup
+- Uses the character's tags as strong guidance
+- Covers appearance, presence, temperament, and role-relevant details
+- Avoids generic filler and contradictory traits
+
+Output only the description. No bullets, no headings, no prefatory text. Keep it to one compact paragraph of 60 to 120 words.`;
+
+  const userPrompt = `Write a character description using this setup:
+- Character name: ${name}
+- Character tags: ${characterTags}
+${existingDescription ? `- Existing notes to refine or replace: ${existingDescription}` : ''}
+- Story genres: ${genres.length > 0 ? genres.join(', ') : 'Not specified'}
+- Story themes: ${themes.length > 0 ? themes.join(', ') : 'Not specified'}
+- Story tags: ${tags.length > 0 ? tags.join(', ') : 'Not specified'}
+${premise ? `- Story premise: ${premise}` : ''}
+- Other character profiles:
+${otherCharacters.length > 0 ? formatCharactersContext(otherCharacters) : 'No other character profiles provided.'}
+
+Write the character description now.`;
 
   return [
     { role: 'system', content: systemPrompt },

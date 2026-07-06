@@ -2,6 +2,7 @@ import { buildStoryExport, downloadTextFile } from '../utils/storyExport';
 
 export default function useWorkspaceActions({
   currentProjectId,
+  updateCurrentProject,
   createNewProject,
   renameProject,
   duplicateProjectById,
@@ -32,6 +33,10 @@ export default function useWorkspaceActions({
       setMemory('');
       setWhatHappensNext('');
       setNextMainEvent('');
+      updateCurrentProject({
+        lastGeneration: null,
+        generationHistory: [],
+      });
       onToast('Story cleared');
     }
   };

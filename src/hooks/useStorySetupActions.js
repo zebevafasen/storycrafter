@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { generatePremiseFromSetup } from '../services/openrouter';
+import {
+  generateCharacterDescription,
+  generatePremiseFromSetup,
+} from '../services/openrouter';
 import { createCharacter } from '../utils/projectState';
 import {
-  PRESET_CUSTOM_TAGS,
   PRESET_GENRES,
   PRESET_THEMES,
   pickRandomPresets,
+  pickRandomCustomTags,
 } from '../utils/storyPresets';
 
 export default function useStorySetupActions({
@@ -24,6 +27,7 @@ export default function useStorySetupActions({
   onRequireSettings,
 }) {
   const [isPremiseGenerating, setIsPremiseGenerating] = useState(false);
+  const [generatingCharacterId, setGeneratingCharacterId] = useState(null);
 
   const handleRandomizeGenres = () => {
     setGenres(pickRandomPresets(PRESET_GENRES, { min: 1, max: 2 }));
@@ -36,7 +40,7 @@ export default function useStorySetupActions({
   };
 
   const handleRandomizeCustomTags = () => {
-    setCustomTags(pickRandomPresets(PRESET_CUSTOM_TAGS, { min: 5, max: 8 }));
+    setCustomTags(pickRandomCustomTags({ genres, min: 5, max: 8 }));
     onToast('Tags randomized');
   };
 
@@ -102,8 +106,64 @@ export default function useStorySetupActions({
     onToast('Character removed');
   };
 
+  const handleGenerateCharacterDescription = async (characterId) => {
+    const character = characters.find((entry) => entry.id === characterId);
+    if (!character) {
+      return;
+    }
+
+    if (!character.name.trim() && character.tags.length === 0) {
+      onToast('Add at least a character name or one character tag first.');
+      return;
+    }
+
+    if (!config.apiKey) {
+      onToast('Please configure your OpenRouter API Key in Settings first.');
+      onRequireSettings();
+      return;
+    }
+
+    if (character.description.trim()) {
+      const shouldReplace = window.confirm(`Replace ${character.name.trim() || 'this character'}'s current description with a new AI-generated one?`);
+      if (!shouldReplace) {
+        return;
+      }
+    }
+
+    setGeneratingCharacterId(characterId);
+
+    try {
+      const generatedDescription = await generateCharacterDescription({
+        apiKey: config.apiKey,
+        model: config.model,
+        character,
+        genres,
+        themes,
+        tags: customTags,
+        premise,
+        otherCharacters: characters.filter((entry) => entry.id !== characterId),
+      });
+
+      if (!generatedDescription) {
+        throw new Error('Received empty response from the character assistant.');
+      }
+
+      handleCharacterChange(characterId, {
+        ...character,
+        description: generatedDescription.trim(),
+      });
+      onToast('Character description generated');
+    } catch (error) {
+      console.error(error);
+      onToast(`Character generation failed: ${error.message}`);
+    } finally {
+      setGeneratingCharacterId(null);
+    }
+  };
+
   return {
     isPremiseGenerating,
+    generatingCharacterId,
     handleRandomizeGenres,
     handleRandomizeThemes,
     handleRandomizeCustomTags,
@@ -111,5 +171,6 @@ export default function useStorySetupActions({
     handleAddCharacter,
     handleCharacterChange,
     handleCharacterRemove,
+    handleGenerateCharacterDescription,
   };
 }

@@ -12,6 +12,7 @@ export default function StorySetupSidebar({
   isOpen,
   isGenerating,
   isPremiseGenerating,
+  generatingCharacterId,
   genres,
   themes,
   customTags,
@@ -22,6 +23,7 @@ export default function StorySetupSidebar({
   onCustomTagsChange,
   onAddCharacter,
   onCharacterChange,
+  onCharacterGenerateDescription,
   onCharacterRemove,
   onPremiseChange,
   onRandomizeGenres,
@@ -109,7 +111,9 @@ export default function StorySetupSidebar({
                 character={character}
                 index={index}
                 disabled={isGenerating || isPremiseGenerating}
+                isGeneratingDescription={generatingCharacterId === character.id}
                 onChange={(value) => onCharacterChange(character.id, value)}
+                onGenerateDescription={() => onCharacterGenerateDescription(character.id)}
                 onRemove={() => onCharacterRemove(character.id)}
               />
             ))}

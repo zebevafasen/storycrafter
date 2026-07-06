@@ -17,12 +17,42 @@ import {
   AVAILABLE_MODELS,
   fetchOpenRouterModels,
 } from './services/openrouter';
+import { createGenerationHistoryEntry } from './utils/projectState';
+import {
+  getDefaultStoryGenerationMode,
+  isStoryGenerationModeAvailable,
+  STORY_GENERATION_MODES,
+} from './utils/storyGeneration';
 
 const DEFAULT_CONFIG = {
   apiKey: '',
   model: 'deepseek/deepseek-chat',
   temperature: 0.7,
 };
+
+function buildGenerationSnapshotLabel(mode, isRegeneration = false) {
+  if (isRegeneration) {
+    if (mode === STORY_GENERATION_MODES.START) {
+      return 'Regenerated opening segment';
+    }
+
+    if (mode === STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL) {
+      return 'Regenerated goal-directed segment';
+    }
+
+    return 'Regenerated continuation';
+  }
+
+  if (mode === STORY_GENERATION_MODES.START) {
+    return 'Started story with AI';
+  }
+
+  if (mode === STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL) {
+    return 'Generated goal-directed segment';
+  }
+
+  return 'Generated continuation';
+}
 
 export default function App() {
   const [config, setConfig] = usePersistentState('storycrafter_config', DEFAULT_CONFIG);
@@ -31,6 +61,7 @@ export default function App() {
     currentProject,
     currentProjectId,
     setCurrentProjectField,
+    updateCurrentProject,
     createNewProject,
     switchProject,
     renameProject,
@@ -44,6 +75,9 @@ export default function App() {
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+  const [isWriteMenuOpen, setIsWriteMenuOpen] = useState(false);
+  const [activeWriteCommand, setActiveWriteCommand] = useState(STORY_GENERATION_MODES.START);
+  const [commandAnchorIndex, setCommandAnchorIndex] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [modelsList, setModelsList] = useState(AVAILABLE_MODELS);
 
@@ -60,6 +94,8 @@ export default function App() {
     characters,
     premise,
     memory,
+    lastGeneration,
+    generationHistory,
     whatHappensNext,
     nextMainEvent,
     limitType,
@@ -102,12 +138,14 @@ export default function App() {
 
   const {
     isPremiseGenerating,
+    generatingCharacterId,
     handleRandomizeGenres,
     handleRandomizeThemes,
     handleRandomizeCustomTags,
     handleGeneratePremise,
     handleAddCharacter,
     handleCharacterChange,
+    handleGenerateCharacterDescription,
     handleCharacterRemove,
   } = useStorySetupActions({
     config,
@@ -137,6 +175,7 @@ export default function App() {
     handleRestoreSnapshot,
   } = useWorkspaceActions({
     currentProjectId,
+    updateCurrentProject,
     createNewProject,
     renameProject,
     duplicateProjectById,
@@ -184,11 +223,90 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  const handleGenerate = async () => {
-    const result = await generateStorySegment();
+  const resolveWriteCommand = (preferredMode = null) => {
+    const candidates = [
+      preferredMode,
+      activeWriteCommand,
+      getDefaultStoryGenerationMode(storyText),
+      STORY_GENERATION_MODES.START,
+      STORY_GENERATION_MODES.CONTINUE,
+    ].filter(Boolean);
+
+    return candidates.find((mode) => isStoryGenerationModeAvailable(mode, { storyText, nextMainEvent }))
+      || getDefaultStoryGenerationMode(storyText);
+  };
+
+  const handleOpenWriteMenu = (preferredMode = null, anchorIndex = null) => {
+    setActiveWriteCommand(resolveWriteCommand(preferredMode));
+    setCommandAnchorIndex(typeof anchorIndex === 'number' ? anchorIndex : storyText.length);
+    setIsWriteMenuOpen(true);
+  };
+
+  const buildGenerationHistoryEntryFromResult = (result, source = 'generation') => {
+    const prefixLength = result.baseStoryText ? 2 : 0;
+    const startIndex = result.baseStoryText.length + prefixLength;
+    const endIndex = startIndex + result.generatedSegmentText.length;
+
+    return createGenerationHistoryEntry({
+      generationMode: result.generationMode,
+      source,
+      generatedText: result.generatedSegmentText,
+      startIndex,
+      endIndex,
+      whatHappensNext: result.whatHappensNext,
+      nextMainEvent: result.nextMainEvent,
+      createdAt: new Date().toISOString(),
+      isApplied: true,
+    });
+  };
+
+  const handleRunWriteCommand = async (mode) => {
+    setIsWriteMenuOpen(false);
+
+    if (mode === STORY_GENERATION_MODES.START && storyText.trim()) {
+      triggerToast('Start Writing is only available when the manuscript is empty.');
+      return;
+    }
+
+    if (mode === STORY_GENERATION_MODES.CONTINUE && !storyText.trim()) {
+      triggerToast('There is no manuscript yet. Use Start Writing first.');
+      return;
+    }
+
+    if (mode === STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL) {
+      if (!storyText.trim()) {
+        triggerToast('Write an opening segment before steering toward a goal.');
+        return;
+      }
+
+      if (!nextMainEvent.trim()) {
+        triggerToast('Add a next main event or goal before using Write Toward Goal.');
+        return;
+      }
+    }
+
+    const result = await generateStorySegment({ mode });
     if (result?.success) {
+      const historyEntry = buildGenerationHistoryEntryFromResult(result, 'generation');
+      setCommandAnchorIndex(historyEntry.startIndex);
+      updateCurrentProject((projectState) => ({
+        lastGeneration: {
+          historyEntryId: historyEntry.id,
+          generationMode: result.generationMode,
+          baseStoryText: result.baseStoryText,
+          baseMemory: result.baseMemory,
+          generatedText: result.generatedSegmentText,
+          whatHappensNext: result.whatHappensNext,
+          nextMainEvent: result.nextMainEvent,
+          limitType: result.limitType,
+          limitValue: result.limitValue,
+          isApplied: true,
+          createdAt: new Date().toISOString(),
+        },
+        generationHistory: [...(projectState.generationHistory || []), historyEntry],
+      }));
       saveSnapshot({
-        label: 'Generated segment',
+        label: buildGenerationSnapshotLabel(result.generationMode),
         source: 'generation',
         contentOverride: {
           storyText: result.finalStoryText,
@@ -196,6 +314,124 @@ export default function App() {
         },
       });
     }
+    if (result?.requiresApiKey) {
+      setIsSettingsOpen(true);
+    }
+  };
+
+  const handleDeleteLatest = () => {
+    if (!lastGeneration?.isApplied) {
+      return;
+    }
+
+    const shouldDelete = window.confirm('Delete the latest AI-generated segment and restore the story to its pre-generation state?');
+    if (!shouldDelete) {
+      return;
+    }
+
+    saveSnapshot({
+      label: 'Before deleting latest segment',
+      source: 'delete-latest-backup',
+    });
+
+    setStoryText(lastGeneration.baseStoryText);
+    setMemory(lastGeneration.baseMemory);
+    setWhatHappensNext(lastGeneration.whatHappensNext);
+    setNextMainEvent(lastGeneration.nextMainEvent);
+    setCurrentProjectField('limitType', lastGeneration.limitType);
+    setLimitValue(lastGeneration.limitValue);
+    setCommandAnchorIndex(lastGeneration.baseStoryText.length);
+    updateCurrentProject((projectState) => ({
+      generationHistory: (projectState.generationHistory || []).map((entry) => (
+        entry.id === projectState.lastGeneration?.historyEntryId
+          ? { ...entry, isApplied: false }
+          : entry
+      )),
+      lastGeneration: projectState.lastGeneration
+        ? {
+            ...projectState.lastGeneration,
+            isApplied: false,
+          }
+        : null,
+    }));
+    triggerToast('Latest generated segment deleted');
+  };
+
+  const handleRegenerateLast = async () => {
+    if (!lastGeneration) {
+      return;
+    }
+
+    const shouldRegenerate = window.confirm('Regenerate the latest AI-written segment using the same last-generation prompts?');
+    if (!shouldRegenerate) {
+      return;
+    }
+
+    saveSnapshot({
+      label: 'Before regenerating latest segment',
+      source: 'regenerate-backup',
+    });
+
+    setStoryText(lastGeneration.baseStoryText);
+    setMemory(lastGeneration.baseMemory);
+    setWhatHappensNext(lastGeneration.whatHappensNext);
+    setNextMainEvent(lastGeneration.nextMainEvent);
+    setCurrentProjectField('limitType', lastGeneration.limitType);
+    setLimitValue(lastGeneration.limitValue);
+    setCommandAnchorIndex(lastGeneration.baseStoryText.length);
+    updateCurrentProject((projectState) => ({
+      generationHistory: (projectState.generationHistory || []).map((entry) => (
+        entry.id === projectState.lastGeneration?.historyEntryId
+          ? { ...entry, isApplied: false }
+          : entry
+      )),
+      lastGeneration: projectState.lastGeneration
+        ? {
+            ...projectState.lastGeneration,
+            isApplied: false,
+          }
+        : null,
+    }));
+
+    const result = await generateStorySegment({
+      mode: lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE,
+      storyText: lastGeneration.baseStoryText,
+      memory: lastGeneration.baseMemory,
+      whatHappensNext: lastGeneration.whatHappensNext,
+      nextMainEvent: lastGeneration.nextMainEvent,
+      limitType: lastGeneration.limitType,
+      limitValue: lastGeneration.limitValue,
+    });
+
+    if (result?.success) {
+      const historyEntry = buildGenerationHistoryEntryFromResult(result, 'regeneration');
+      setCommandAnchorIndex(historyEntry.startIndex);
+      updateCurrentProject((projectState) => ({
+        lastGeneration: {
+          historyEntryId: historyEntry.id,
+          generationMode: result.generationMode,
+          baseStoryText: result.baseStoryText,
+          baseMemory: result.baseMemory,
+          generatedText: result.generatedSegmentText,
+          whatHappensNext: result.whatHappensNext,
+          nextMainEvent: result.nextMainEvent,
+          limitType: result.limitType,
+          limitValue: result.limitValue,
+          isApplied: true,
+          createdAt: new Date().toISOString(),
+        },
+        generationHistory: [...(projectState.generationHistory || []), historyEntry],
+      }));
+      saveSnapshot({
+        label: buildGenerationSnapshotLabel(result.generationMode, true),
+        source: 'regeneration',
+        contentOverride: {
+          storyText: result.finalStoryText,
+          whatHappensNext: '',
+        },
+      });
+    }
+
     if (result?.requiresApiKey) {
       setIsSettingsOpen(true);
     }
@@ -255,6 +491,7 @@ export default function App() {
         isOpen={isLeftPanelOpen}
         isGenerating={isGenerating}
         isPremiseGenerating={isPremiseGenerating}
+        generatingCharacterId={generatingCharacterId}
         genres={genres}
         themes={themes}
         customTags={customTags}
@@ -265,6 +502,7 @@ export default function App() {
         onCustomTagsChange={setCustomTags}
         onAddCharacter={handleAddCharacter}
         onCharacterChange={handleCharacterChange}
+        onCharacterGenerateDescription={handleGenerateCharacterDescription}
         onCharacterRemove={handleCharacterRemove}
         onPremiseChange={setPremise}
         onRandomizeGenres={handleRandomizeGenres}
@@ -277,7 +515,14 @@ export default function App() {
         <StoryCanvas
           storyText={storyText}
           isGenerating={isGenerating}
+          commandAnchorIndex={commandAnchorIndex}
+          generationHistory={generationHistory}
+          lastGeneration={lastGeneration}
           onStoryTextChange={setStoryText}
+          onOpenWriteCommands={handleOpenWriteMenu}
+          onSelectHistoryEntry={(entry) => setCommandAnchorIndex(entry.startIndex)}
+          onRegenerateLast={handleRegenerateLast}
+          onDeleteLatest={handleDeleteLatest}
         />
 
         <StoryMemoryDrawer
@@ -291,7 +536,10 @@ export default function App() {
         />
 
         <BottomControls
+          storyText={storyText}
           isGenerating={isGenerating}
+          isWriteMenuOpen={isWriteMenuOpen}
+          activeCommand={activeWriteCommand}
           limitType={limitType}
           limitValue={limitValue}
           whatHappensNext={whatHappensNext}
@@ -300,7 +548,10 @@ export default function App() {
           onNextMainEventChange={setNextMainEvent}
           onLimitTypeChange={handleLimitTypeChange}
           onLimitValueChange={setLimitValue}
-          onGenerate={handleGenerate}
+          onOpenWriteMenu={handleOpenWriteMenu}
+          onCloseWriteMenu={() => setIsWriteMenuOpen(false)}
+          onActiveCommandChange={setActiveWriteCommand}
+          onGenerate={handleRunWriteCommand}
         />
       </main>
 

@@ -170,10 +170,14 @@ export default function useProjectManager() {
       const backupSnapshot = createSnapshot(project, 'Before restore', 'restore-backup');
       restored = true;
 
-      return applyProjectContent(
-        attachSnapshot(project, backupSnapshot),
-        snapshot.content,
-      );
+      return {
+        ...applyProjectContent(
+          attachSnapshot(project, backupSnapshot),
+          snapshot.content,
+        ),
+        lastGeneration: null,
+        generationHistory: [],
+      };
     });
 
     return restored;
