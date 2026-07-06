@@ -73,7 +73,9 @@ export default function App() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
-  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(() => {
+    return typeof window !== 'undefined' && window.innerWidth >= 768;
+  });
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
   const [isWriteMenuOpen, setIsWriteMenuOpen] = useState(false);
   const [activeWriteCommand, setActiveWriteCommand] = useState(STORY_GENERATION_MODES.START);
@@ -576,6 +578,17 @@ export default function App() {
         onSaveSnapshot={handleSaveSnapshot}
         onRestoreSnapshot={handleRestoreSnapshot}
       />
+
+      {/* Mobile backdrop for sidebar & memory drawer */}
+      {(isLeftPanelOpen || isMemoryOpen) && (
+        <div
+          className="mobile-backdrop"
+          onClick={() => {
+            setIsLeftPanelOpen(false);
+            setIsMemoryOpen(false);
+          }}
+        />
+      )}
 
       {toastMessage && (
         <div className="toast">
