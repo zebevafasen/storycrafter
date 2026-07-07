@@ -4,13 +4,44 @@ import Placeholder from '@tiptap/extension-placeholder';
 import StarterKit from '@tiptap/starter-kit';
 import { NodeSelection } from '@tiptap/pm/state';
 import { Sparkles } from 'lucide-react';
+import AiSegmentBlock from '../editor/AiSegmentBlock';
 import AiSegmentAnchor from '../editor/AiSegmentAnchor';
 import { StoryEditorContext } from '../editor/StoryEditorContext';
+import WriteCommandLine from '../editor/WriteCommandLine';
 
 function getSelectionPlainTextOffset(editor) {
   const { state } = editor;
   const textBeforeSelection = state.doc.textBetween(0, state.selection.from, '\n\n');
   return textBeforeSelection.length;
+}
+
+function createAnchorRectFromView(view) {
+  const caretCoordinates = view.coordsAtPos(view.state.selection.from);
+
+  return {
+    top: caretCoordinates.top,
+    bottom: caretCoordinates.bottom,
+    left: caretCoordinates.left,
+    right: caretCoordinates.right,
+  };
+}
+
+function getCurrentTopLevelIndex(selection) {
+  return Math.max(0, selection.$from.indexAfter(0) - 1);
+}
+
+function createInsertionTargetFromView(view) {
+  const { selection, doc } = view.state;
+  const topLevelIndex = getCurrentTopLevelIndex(selection);
+  const topLevelNode = doc.child(topLevelIndex);
+  const isInsideSegmentBlock = topLevelNode?.type?.name === 'aiSegmentBlock';
+  const isReplaceableEmptyParagraph = topLevelNode?.type?.name === 'paragraph'
+    && !(topLevelNode.textContent || '').trim();
+
+  return {
+    insertAtIndex: isInsideSegmentBlock ? topLevelIndex + 1 : topLevelIndex,
+    replaceEmptyParagraph: isReplaceableEmptyParagraph && !isInsideSegmentBlock,
+  };
 }
 
 export default function StoryCanvas({
@@ -38,7 +69,9 @@ export default function StoryCanvas({
         listItem: false,
         orderedList: false,
       }),
+      AiSegmentBlock,
       AiSegmentAnchor,
+      WriteCommandLine,
       Placeholder.configure({
         placeholder: 'Start typing your story here... Or type / on a blank line to open the writing commands.',
       }),
@@ -71,7 +104,16 @@ export default function StoryCanvas({
         }
 
         event.preventDefault();
-        onOpenWriteCommands(null, getSelectionPlainTextOffset({ state: view.state }));
+        onOpenWriteCommands(null, {
+          source: 'editor',
+          anchorRect: createAnchorRectFromView(view),
+          selection: {
+            from: selection.from,
+            to: selection.to,
+          },
+          insertionTarget: createInsertionTargetFromView(view),
+          plainTextOffset: getSelectionPlainTextOffset({ state: view.state }),
+        });
         return true;
       },
     },
@@ -108,7 +150,10 @@ export default function StoryCanvas({
     let anchorPosition = null;
 
     editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === 'aiSegmentAnchor' && node.attrs?.entryId === entry.id) {
+      if (
+        (node.type.name === 'aiSegmentBlock' || node.type.name === 'aiSegmentAnchor')
+        && node.attrs?.entryId === entry.id
+      ) {
         anchorPosition = pos;
         return false;
       }

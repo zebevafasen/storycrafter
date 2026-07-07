@@ -1,6 +1,10 @@
 /**
  * OpenRouter API Service for StoryCrafter
  */
+import {
+  buildCharacterDescriptionMessages,
+  buildStorySegmentMessages,
+} from '../utils/storyPrompts';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -135,6 +139,7 @@ export async function generateNextSegment({
   apiKey,
   model,
   temperature = 0.7,
+  mode = 'continue',
   genres = [],
   themes = [],
   tags = [],
@@ -148,71 +153,20 @@ export async function generateNextSegment({
   limitValue = 250,
   onChunk = null, // Optional callback for streaming tokens
 }) {
-  // Format constraint instruction
-  let lengthConstraint = 'Write a natural continuation. Maintain the existing writing style.';
-  if (limitType === 'words' && limitValue) {
-    lengthConstraint = `Aim for approximately ${limitValue} words. Focus on a pacing that matches the story so far.`;
-  } else if (limitType === 'paragraphs' && limitValue) {
-    lengthConstraint = `Write exactly ${limitValue} paragraph(s). Do not write more than ${limitValue} paragraphs.`;
-  } else if (limitType === 'nolimit') {
-    lengthConstraint = 'Write a natural, complete segment. No strict word or paragraph limits, but keep it readable.';
-  }
-
-  // Format system instruction
-  const systemPrompt = `You are a fiction co-writer continuing an existing story.
-
-Your job is to write the next segment so it feels like a true continuation of the current manuscript, not a summary, outline, teaser, or ending.
-
-Writing rules:
-- Match the existing tone, tense, point of view, and narrative intensity of the story so far.
-- Continue the scene through concrete action, dialogue, observation, and consequence.
-- Prioritize specificity over generic dramatic phrasing.
-- Use the provided genres, themes, tags, character profiles, premise, and memory as hard guidance.
-- Move the story forward in a meaningful way rather than stalling or restating what is already known.
-- Do not narrate like a back-cover blurb, moral summary, chapter recap, or outline.
-- Do not end with vague teaser lines, rhetorical foreshadowing, or "the story continues" energy.
-- Avoid endings like "only time would tell," "the night stretched ahead of them," "what came next remained uncertain," or similar open-ended fade-outs.
-
-Adhere strictly to these story details:
-${genres.length > 0 ? `- Genres: ${genres.join(', ')}` : ''}
-${themes.length > 0 ? `- Themes: ${themes.join(', ')}` : ''}
-${tags.length > 0 ? `- Tags: ${tags.join(', ')}` : ''}
-${premise ? `- Premise/Summary: ${premise}` : ''}
-
-Character Profiles:
-${formatCharactersContext(characters)}
-
-Background Story Memory (Key Facts/Characters):
-${memory || 'No established memory yet.'}
-
-Length Constraint:
-${lengthConstraint}`;
-
-  // Assemble recent story for context (last ~4000 characters to prevent context bloating)
-  const recentStory = storyText ? storyText.slice(-4000) : '';
-
-  // Format user instruction
-  let userInstruction = 'Continue the story based on the details above.\n';
-  if (whatHappensNext) {
-    userInstruction += `- What should happen next: ${whatHappensNext}\n`;
-  }
-  if (nextMainEvent) {
-    userInstruction += `- Next main event/goal to progress towards: ${nextMainEvent}\n`;
-  }
-
-  const userPrompt = `Here is the story so far:
----
-${recentStory || '(The story is just beginning.)'}
----
-
-Instructions for this new segment:
-${userInstruction}
-Write the next part of the story now:`;
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ];
+  const messages = buildStorySegmentMessages({
+    mode,
+    genres,
+    themes,
+    tags,
+    characters,
+    premise,
+    memory,
+    storyText,
+    whatHappensNext,
+    nextMainEvent,
+    limitType,
+    limitValue,
+  });
 
   if (onChunk) {
     if (!apiKey) {
@@ -283,6 +237,8 @@ Write the next part of the story now:`;
 
   return makeOpenRouterRequest(apiKey, model, messages, temperature);
 }
+
+export const generateStorySegment = generateNextSegment;
 
 /**
  * Automatically updates the story memory list in the background
@@ -367,6 +323,28 @@ Write the summary now.`;
   ];
 
   return makeOpenRouterRequest(apiKey, model, messages, 0.9);
+}
+
+export async function generateCharacterDescription({
+  apiKey,
+  model,
+  character,
+  genres = [],
+  themes = [],
+  tags = [],
+  premise = '',
+  otherCharacters = [],
+}) {
+  const messages = buildCharacterDescriptionMessages({
+    character,
+    genres,
+    themes,
+    tags,
+    premise,
+    otherCharacters,
+  });
+
+  return makeOpenRouterRequest(apiKey, model, messages, 0.85);
 }
 
 /**

@@ -68,6 +68,7 @@ export default function useStoryGenerator({
     const sourceLimitType = overrides.limitType ?? limitType;
     const sourceLimitValue = overrides.limitValue ?? limitValue;
     const sourceGenerationMode = overrides.mode ?? STORY_GENERATION_MODES.CONTINUE;
+    const onChunk = typeof overrides.onChunk === 'function' ? overrides.onChunk : null;
     const originalText = sourceStoryText.trim();
 
     try {
@@ -95,6 +96,7 @@ export default function useStoryGenerator({
         nextMainEvent: sourceNextMainEvent,
         limitType: sourceLimitType,
         limitValue: finalLimitValue,
+        onChunk,
       });
 
       if (!newText) {

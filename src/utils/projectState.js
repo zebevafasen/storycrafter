@@ -42,6 +42,8 @@ const LAST_GENERATION_DEFAULTS = {
   baseManuscriptDoc: createEmptyManuscriptDoc(),
   baseMemory: '',
   generatedText: '',
+  insertionOffset: null,
+  insertionTarget: null,
   whatHappensNext: '',
   nextMainEvent: '',
   limitType: 'paragraphs',
@@ -71,6 +73,19 @@ function cleanArray(value) {
 function cleanNumber(value, fallback = 0) {
   const parsedValue = Number(value);
   return Number.isFinite(parsedValue) ? parsedValue : fallback;
+}
+
+function cleanInsertionTarget(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const insertAtIndex = Number(value.insertAtIndex);
+
+  return {
+    insertAtIndex: Number.isInteger(insertAtIndex) ? Math.max(0, insertAtIndex) : 0,
+    replaceEmptyParagraph: Boolean(value.replaceEmptyParagraph),
+  };
 }
 
 export function createCharacter({
@@ -201,6 +216,10 @@ function normalizeLastGeneration(lastGeneration) {
     ),
     baseMemory: cleanString(lastGeneration.baseMemory, LAST_GENERATION_DEFAULTS.baseMemory),
     generatedText: cleanString(lastGeneration.generatedText, LAST_GENERATION_DEFAULTS.generatedText),
+    insertionOffset: Number.isFinite(Number(lastGeneration.insertionOffset))
+      ? Math.max(0, Number(lastGeneration.insertionOffset))
+      : null,
+    insertionTarget: cleanInsertionTarget(lastGeneration.insertionTarget),
     whatHappensNext: cleanString(lastGeneration.whatHappensNext, LAST_GENERATION_DEFAULTS.whatHappensNext),
     nextMainEvent: cleanString(lastGeneration.nextMainEvent, LAST_GENERATION_DEFAULTS.nextMainEvent),
     limitType: normalizeContentField('limitType', lastGeneration.limitType, LAST_GENERATION_DEFAULTS.limitType),

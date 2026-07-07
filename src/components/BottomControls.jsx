@@ -21,6 +21,63 @@ const COMMAND_ICONS = {
   [STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL]: Flag,
 };
 
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeAnchorRect(rect) {
+  if (!rect) {
+    return null;
+  }
+
+  return {
+    top: rect.top,
+    bottom: rect.bottom,
+    left: rect.left,
+    right: rect.right,
+  };
+}
+
+function getAnchoredPopupPosition(anchorRect) {
+  if (!anchorRect || typeof window === 'undefined') {
+    return {
+      className: '',
+      style: undefined,
+    };
+  }
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const horizontalPadding = viewportWidth <= 720 ? 12 : 20;
+  const popupWidth = Math.min(viewportWidth - (horizontalPadding * 2), viewportWidth <= 1100 ? 640 : 760);
+  const left = clamp(
+    anchorRect.left - 40,
+    horizontalPadding,
+    Math.max(horizontalPadding, viewportWidth - popupWidth - horizontalPadding),
+  );
+
+  const spaceAbove = anchorRect.top;
+  const spaceBelow = viewportHeight - anchorRect.bottom;
+  const placeBelow = spaceBelow > 360 && spaceBelow > spaceAbove;
+
+  return {
+    className: `anchored ${placeBelow ? 'command-popup-placement-below' : 'command-popup-placement-above'}`,
+    style: placeBelow
+      ? {
+          position: 'fixed',
+          top: Math.min(viewportHeight - 12, anchorRect.bottom + 12),
+          left,
+          width: popupWidth,
+        }
+      : {
+          position: 'fixed',
+          bottom: Math.max(12, viewportHeight - anchorRect.top + 12),
+          left,
+          width: popupWidth,
+        },
+  };
+}
+
 function getCommandAvailabilityReason(mode, { storyText, nextMainEvent }) {
   if (mode === STORY_GENERATION_MODES.START && storyText.trim()) {
     return 'Requires an empty manuscript.';
@@ -144,6 +201,9 @@ export default function BottomControls({
   isGenerating,
   isWriteMenuOpen,
   activeCommand,
+  writeMenuSource,
+  writeMenuAnchorRect,
+  writeMenuSelection,
   canRegenerateLast,
   canDeleteLatest,
   limitType,
@@ -164,6 +224,10 @@ export default function BottomControls({
   const popupRef = useRef(null);
   const activeCommandAvailable = isStoryGenerationModeAvailable(activeCommand, { storyText, nextMainEvent });
   const activeCommandMeta = getCommandMeta(activeCommand);
+  const anchoredPopup = getAnchoredPopupPosition(writeMenuAnchorRect);
+  const contextualFooterNote = writeMenuSource === 'editor' && writeMenuSelection
+    ? 'Opened from the current blank line in the manuscript.'
+    : 'Tip: type `/` on a blank line in the editor to reopen this menu quickly.';
 
   useEffect(() => {
     if (!isWriteMenuOpen) {
@@ -194,7 +258,7 @@ export default function BottomControls({
   return (
     <section className="bottom-controls command-dock">
       {isWriteMenuOpen && (
-        <div className="command-popup" ref={popupRef}>
+        <div className={`command-popup ${anchoredPopup.className}`.trim()} ref={popupRef} style={anchoredPopup.style}>
           <div className="command-popup-sidebar">
             <div className="command-popup-heading">
               <span className="section-title">Write Commands</span>
@@ -291,7 +355,7 @@ export default function BottomControls({
 
             <div className="command-panel-footer">
               <span className="command-field-note">
-                Tip: type `/` on a blank line in the editor to reopen this menu quickly.
+                {contextualFooterNote}
               </span>
               <div className="generate-actions">
                 <button
@@ -330,7 +394,10 @@ export default function BottomControls({
           <button
             type="button"
             className="primary command-open-btn"
-            onClick={() => onOpenWriteMenu()}
+            onClick={(event) => onOpenWriteMenu(null, {
+              source: 'dock',
+              anchorRect: normalizeAnchorRect(event.currentTarget.getBoundingClientRect()),
+            })}
             disabled={isGenerating}
           >
             <Slash size={14} />

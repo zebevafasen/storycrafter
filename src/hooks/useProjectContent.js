@@ -11,16 +11,26 @@ export default function useProjectContent(currentProject, setCurrentProjectField
 
   const bindField = (field) => (value) => setCurrentProjectField(field, value);
   const setStoryText = (value) => {
-    updateCurrentProject({
-      storyText: value,
-      manuscriptDoc: plainTextToManuscriptDoc(value),
+    updateCurrentProject((currentValue) => {
+      const nextStoryText = typeof value === 'function' ? value(currentValue.storyText) : value;
+
+      return {
+        storyText: nextStoryText,
+        manuscriptDoc: plainTextToManuscriptDoc(nextStoryText),
+      };
     });
   };
 
   const setManuscriptDoc = (value) => {
-    updateCurrentProject({
-      manuscriptDoc: value,
-      storyText: manuscriptDocToPlainText(value),
+    updateCurrentProject((currentValue) => {
+      const nextManuscriptDoc = typeof value === 'function'
+        ? value(currentValue.manuscriptDoc)
+        : value;
+
+      return {
+        manuscriptDoc: nextManuscriptDoc,
+        storyText: manuscriptDocToPlainText(nextManuscriptDoc),
+      };
     });
   };
 

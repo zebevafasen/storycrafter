@@ -13,7 +13,13 @@ import useProjectManager from './hooks/useProjectManager';
 import useStorySetupActions from './hooks/useStorySetupActions';
 import useStoryGenerator from './hooks/useStoryGenerator';
 import useWorkspaceActions from './hooks/useWorkspaceActions';
-import { appendGeneratedSegmentToManuscriptDoc } from './utils/manuscriptDocument';
+import {
+  insertWriteCommandLineInManuscriptDoc,
+  getGeneratedSegmentRangeFromManuscriptDoc,
+  insertGeneratedSegmentInManuscriptDoc,
+  manuscriptDocToPlainText,
+  removeWriteCommandLineFromManuscriptDoc,
+} from './utils/manuscriptDocument';
 import {
   AVAILABLE_MODELS,
   fetchOpenRouterModels,
@@ -29,6 +35,18 @@ const DEFAULT_CONFIG = {
   apiKey: '',
   model: 'deepseek/deepseek-chat',
   temperature: 0.7,
+};
+
+const DEFAULT_WRITE_MENU_STATE = {
+  isOpen: false,
+  source: 'dock',
+  anchorRect: null,
+  selection: null,
+  insertionTarget: null,
+  plainTextOffset: null,
+  commandAnchorId: '',
+  baseStoryText: '',
+  baseManuscriptDoc: null,
 };
 
 function buildGenerationSnapshotLabel(mode, isRegeneration = false) {
@@ -76,7 +94,7 @@ export default function App() {
   const [isProjectsOpen, setIsProjectsOpen] = useState(false);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true);
   const [isMemoryOpen, setIsMemoryOpen] = useState(false);
-  const [isWriteMenuOpen, setIsWriteMenuOpen] = useState(false);
+  const [writeMenuState, setWriteMenuState] = useState(DEFAULT_WRITE_MENU_STATE);
   const [activeWriteCommand, setActiveWriteCommand] = useState(STORY_GENERATION_MODES.START);
   const [toastMessage, setToastMessage] = useState('');
   const [modelsList, setModelsList] = useState(AVAILABLE_MODELS);
@@ -237,22 +255,66 @@ export default function App() {
       || getDefaultStoryGenerationMode(storyText);
   };
 
-  const handleOpenWriteMenu = (preferredMode = null, _selectionOffset = null) => {
+  const handleOpenWriteMenu = (preferredMode = null, options = {}) => {
+    const {
+      anchorRect = null,
+      selection = null,
+      insertionTarget = null,
+      plainTextOffset = null,
+      source = 'dock',
+    } = options && typeof options === 'object' ? options : {};
+
+    const commandAnchorId = source === 'editor' && insertionTarget
+      ? createGenerationHistoryEntry({
+        generationMode: resolveWriteCommand(preferredMode),
+        source: 'command-anchor',
+      }).id
+      : '';
+
+    if (commandAnchorId) {
+      setManuscriptDoc((currentDoc) => insertWriteCommandLineInManuscriptDoc(currentDoc, {
+        anchorId: commandAnchorId,
+        insertionTarget,
+      }));
+    }
+
     setActiveWriteCommand(resolveWriteCommand(preferredMode));
-    setIsWriteMenuOpen(true);
+    setWriteMenuState({
+      isOpen: true,
+      source,
+      anchorRect,
+      selection,
+      insertionTarget,
+      plainTextOffset: typeof plainTextOffset === 'number' ? plainTextOffset : null,
+      commandAnchorId,
+      baseStoryText: storyText,
+      baseManuscriptDoc: manuscriptDoc,
+    });
+  };
+
+  const handleCloseWriteMenu = ({ restoreCommandLine = true } = {}) => {
+    if (restoreCommandLine && writeMenuState.commandAnchorId) {
+      setManuscriptDoc(writeMenuState.baseManuscriptDoc || removeWriteCommandLineFromManuscriptDoc(manuscriptDoc, writeMenuState.commandAnchorId));
+    }
+
+    setWriteMenuState(() => ({
+      ...DEFAULT_WRITE_MENU_STATE,
+    }));
   };
 
   const buildGenerationHistoryEntryFromResult = (result, source = 'generation') => {
-    const prefixLength = result.baseStoryText ? 2 : 0;
-    const startIndex = result.baseStoryText.length + prefixLength;
-    const endIndex = startIndex + result.generatedSegmentText.length;
+    const range = result.segmentRange || {
+      startIndex: 0,
+      endIndex: result.generatedSegmentText.length,
+    };
 
     return createGenerationHistoryEntry({
+      id: result.entryId,
       generationMode: result.generationMode,
       source,
       generatedText: result.generatedSegmentText,
-      startIndex,
-      endIndex,
+      startIndex: range.startIndex,
+      endIndex: range.endIndex,
       whatHappensNext: result.whatHappensNext,
       nextMainEvent: result.nextMainEvent,
       createdAt: new Date().toISOString(),
@@ -260,8 +322,30 @@ export default function App() {
     });
   };
 
+  const applyGeneratedSegmentToDraft = ({
+    baseManuscriptDoc,
+    generatedText,
+    entryId,
+    commandAnchorId = '',
+    insertionTarget = null,
+  }) => {
+    const nextManuscriptDoc = insertGeneratedSegmentInManuscriptDoc(baseManuscriptDoc, {
+      entryId,
+      generatedText,
+      commandAnchorId,
+      insertionTarget,
+    });
+
+    return {
+      nextManuscriptDoc,
+      nextStoryText: manuscriptDocToPlainText(nextManuscriptDoc),
+      segmentRange: getGeneratedSegmentRangeFromManuscriptDoc(nextManuscriptDoc, entryId),
+    };
+  };
+
   const handleRunWriteCommand = async (mode) => {
-    setIsWriteMenuOpen(false);
+    const pendingWriteMenuState = writeMenuState;
+    handleCloseWriteMenu({ restoreCommandLine: false });
 
     if (mode === STORY_GENERATION_MODES.START && storyText.trim()) {
       triggerToast('Start Writing is only available when the manuscript is empty.');
@@ -285,24 +369,76 @@ export default function App() {
       }
     }
 
-    const result = await generateStorySegment({ mode });
+    const entryId = createGenerationHistoryEntry({
+      generationMode: mode,
+      source: 'generation-preview',
+    }).id;
+    const insertionOffset = typeof pendingWriteMenuState.plainTextOffset === 'number'
+      ? pendingWriteMenuState.plainTextOffset
+      : storyText.length;
+    const promptStoryText = mode === STORY_GENERATION_MODES.START
+      ? ''
+      : (pendingWriteMenuState.baseStoryText || storyText).slice(0, insertionOffset);
+    const baseStoryText = pendingWriteMenuState.baseStoryText || storyText;
+    const baseManuscriptDoc = pendingWriteMenuState.baseManuscriptDoc || manuscriptDoc;
+    const insertionTarget = pendingWriteMenuState.insertionTarget;
+    const commandAnchorId = pendingWriteMenuState.commandAnchorId;
+    const commandLineDoc = commandAnchorId
+      ? insertWriteCommandLineInManuscriptDoc(baseManuscriptDoc, {
+        anchorId: commandAnchorId,
+        insertionTarget,
+      })
+      : manuscriptDoc;
+
+    const result = await generateStorySegment({
+      mode,
+      storyText: promptStoryText,
+      onChunk: (streamedText) => {
+        const { nextManuscriptDoc } = applyGeneratedSegmentToDraft({
+          baseManuscriptDoc: commandLineDoc,
+          generatedText: streamedText,
+          entryId,
+          commandAnchorId,
+          insertionTarget,
+        });
+
+        setManuscriptDoc(nextManuscriptDoc);
+      },
+    });
+
     if (result?.success) {
-      const historyEntry = buildGenerationHistoryEntryFromResult(result, 'generation');
-      const nextManuscriptDoc = appendGeneratedSegmentToManuscriptDoc(manuscriptDoc, {
-        entryId: historyEntry.id,
+      const {
+        nextManuscriptDoc,
+        nextStoryText,
+        segmentRange,
+      } = applyGeneratedSegmentToDraft({
+        baseManuscriptDoc: commandLineDoc,
         generatedText: result.generatedSegmentText,
+        entryId,
+        commandAnchorId,
+        insertionTarget,
       });
+      const historyEntry = buildGenerationHistoryEntryFromResult({
+        ...result,
+        entryId,
+        segmentRange: segmentRange || {
+          startIndex: insertionOffset,
+          endIndex: insertionOffset + result.generatedSegmentText.length,
+        },
+      }, 'generation');
 
       updateCurrentProject((projectState) => ({
-        storyText: result.finalStoryText,
+        storyText: nextStoryText,
         manuscriptDoc: nextManuscriptDoc,
         lastGeneration: {
           historyEntryId: historyEntry.id,
           generationMode: result.generationMode,
-          baseStoryText: result.baseStoryText,
-          baseManuscriptDoc: manuscriptDoc,
+          baseStoryText,
+          baseManuscriptDoc,
           baseMemory: result.baseMemory,
           generatedText: result.generatedSegmentText,
+          insertionOffset,
+          insertionTarget,
           whatHappensNext: result.whatHappensNext,
           nextMainEvent: result.nextMainEvent,
           limitType: result.limitType,
@@ -316,12 +452,15 @@ export default function App() {
         label: buildGenerationSnapshotLabel(result.generationMode),
         source: 'generation',
         contentOverride: {
-          storyText: result.finalStoryText,
+          storyText: nextStoryText,
           manuscriptDoc: nextManuscriptDoc,
           whatHappensNext: '',
         },
       });
+    } else if (result && !result.requiresApiKey) {
+      setManuscriptDoc(baseManuscriptDoc);
     }
+
     if (result?.requiresApiKey) {
       setIsSettingsOpen(true);
     }
@@ -380,54 +519,80 @@ export default function App() {
       source: 'regenerate-backup',
     });
 
-    setStoryText(lastGeneration.baseStoryText);
-    setManuscriptDoc(lastGeneration.baseManuscriptDoc);
-    setMemory(lastGeneration.baseMemory);
-    setWhatHappensNext(lastGeneration.whatHappensNext);
-    setNextMainEvent(lastGeneration.nextMainEvent);
-    setCurrentProjectField('limitType', lastGeneration.limitType);
-    setLimitValue(lastGeneration.limitValue);
-    updateCurrentProject((projectState) => ({
-      generationHistory: (projectState.generationHistory || []).map((entry) => (
-        entry.id === projectState.lastGeneration?.historyEntryId
-          ? { ...entry, isApplied: false }
-          : entry
-      )),
-      lastGeneration: projectState.lastGeneration
-        ? {
-            ...projectState.lastGeneration,
-            isApplied: false,
-          }
-        : null,
-    }));
+    const regenerationEntryId = createGenerationHistoryEntry({
+      generationMode: lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE,
+      source: 'regeneration-preview',
+    }).id;
+    const regenerationCommandAnchorId = createGenerationHistoryEntry({
+      generationMode: lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE,
+      source: 'regeneration-command-anchor',
+    }).id;
+    const regenerationCommandLineDoc = insertWriteCommandLineInManuscriptDoc(lastGeneration.baseManuscriptDoc, {
+      anchorId: regenerationCommandAnchorId,
+      insertionTarget: lastGeneration.insertionTarget,
+    });
 
     const result = await generateStorySegment({
       mode: lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE,
-      storyText: lastGeneration.baseStoryText,
+      storyText: (lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE) === STORY_GENERATION_MODES.START
+        ? ''
+        : lastGeneration.baseStoryText.slice(0, lastGeneration.insertionOffset ?? lastGeneration.baseStoryText.length),
       memory: lastGeneration.baseMemory,
       whatHappensNext: lastGeneration.whatHappensNext,
       nextMainEvent: lastGeneration.nextMainEvent,
       limitType: lastGeneration.limitType,
       limitValue: lastGeneration.limitValue,
+      onChunk: (streamedText) => {
+        const { nextManuscriptDoc } = applyGeneratedSegmentToDraft({
+          baseManuscriptDoc: regenerationCommandLineDoc,
+          generatedText: streamedText,
+          entryId: regenerationEntryId,
+          commandAnchorId: regenerationCommandAnchorId,
+          insertionTarget: lastGeneration.insertionTarget,
+        });
+
+        setManuscriptDoc(nextManuscriptDoc);
+      },
     });
 
     if (result?.success) {
-      const historyEntry = buildGenerationHistoryEntryFromResult(result, 'regeneration');
-      const nextManuscriptDoc = appendGeneratedSegmentToManuscriptDoc(lastGeneration.baseManuscriptDoc, {
-        entryId: historyEntry.id,
+      const {
+        nextManuscriptDoc,
+        nextStoryText,
+        segmentRange,
+      } = applyGeneratedSegmentToDraft({
+        baseManuscriptDoc: regenerationCommandLineDoc,
         generatedText: result.generatedSegmentText,
+        entryId: regenerationEntryId,
+        commandAnchorId: regenerationCommandAnchorId,
+        insertionTarget: lastGeneration.insertionTarget,
       });
+      const historyEntry = buildGenerationHistoryEntryFromResult({
+        ...result,
+        entryId: regenerationEntryId,
+        segmentRange: segmentRange || {
+          startIndex: lastGeneration.insertionOffset ?? 0,
+          endIndex: (lastGeneration.insertionOffset ?? 0) + result.generatedSegmentText.length,
+        },
+      }, 'regeneration');
 
       updateCurrentProject((projectState) => ({
-        storyText: result.finalStoryText,
+        generationHistory: (projectState.generationHistory || []).map((entry) => (
+          entry.id === lastGeneration.historyEntryId
+            ? { ...entry, isApplied: false }
+            : entry
+        )).concat(historyEntry),
+        storyText: nextStoryText,
         manuscriptDoc: nextManuscriptDoc,
         lastGeneration: {
           historyEntryId: historyEntry.id,
           generationMode: result.generationMode,
-          baseStoryText: result.baseStoryText,
+          baseStoryText: lastGeneration.baseStoryText,
           baseManuscriptDoc: lastGeneration.baseManuscriptDoc,
           baseMemory: result.baseMemory,
           generatedText: result.generatedSegmentText,
+          insertionOffset: lastGeneration.insertionOffset ?? null,
+          insertionTarget: lastGeneration.insertionTarget ?? null,
           whatHappensNext: result.whatHappensNext,
           nextMainEvent: result.nextMainEvent,
           limitType: result.limitType,
@@ -435,13 +600,17 @@ export default function App() {
           isApplied: true,
           createdAt: new Date().toISOString(),
         },
-        generationHistory: [...(projectState.generationHistory || []), historyEntry],
       }));
+      setMemory(result.baseMemory);
+      setWhatHappensNext(result.whatHappensNext);
+      setNextMainEvent(result.nextMainEvent);
+      setCurrentProjectField('limitType', result.limitType);
+      setLimitValue(result.limitValue);
       saveSnapshot({
         label: buildGenerationSnapshotLabel(result.generationMode, true),
         source: 'regeneration',
         contentOverride: {
-          storyText: result.finalStoryText,
+          storyText: nextStoryText,
           manuscriptDoc: nextManuscriptDoc,
           whatHappensNext: '',
         },
@@ -553,8 +722,11 @@ export default function App() {
         <BottomControls
           storyText={storyText}
           isGenerating={isGenerating}
-          isWriteMenuOpen={isWriteMenuOpen}
+          isWriteMenuOpen={writeMenuState.isOpen}
           activeCommand={activeWriteCommand}
+          writeMenuSource={writeMenuState.source}
+          writeMenuAnchorRect={writeMenuState.anchorRect}
+          writeMenuSelection={writeMenuState.selection}
           canRegenerateLast={Boolean(lastGeneration)}
           canDeleteLatest={Boolean(lastGeneration?.isApplied)}
           limitType={limitType}
@@ -566,7 +738,7 @@ export default function App() {
           onLimitTypeChange={handleLimitTypeChange}
           onLimitValueChange={setLimitValue}
           onOpenWriteMenu={handleOpenWriteMenu}
-          onCloseWriteMenu={() => setIsWriteMenuOpen(false)}
+          onCloseWriteMenu={handleCloseWriteMenu}
           onActiveCommandChange={setActiveWriteCommand}
           onRegenerateLast={handleRegenerateLast}
           onDeleteLatest={handleDeleteLatest}
