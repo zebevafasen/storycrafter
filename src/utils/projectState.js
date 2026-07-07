@@ -13,7 +13,10 @@ import {
   hasLegacyProjectData,
   readLegacyProjectContent,
 } from './projectStateLegacy';
-import { STORY_GENERATION_MODES } from './storyGeneration';
+import {
+  ALL_STORY_COMMAND_MODES,
+  STORY_GENERATION_MODES,
+} from './storyGeneration';
 
 const MAX_SNAPSHOTS_PER_PROJECT = 25;
 
@@ -42,8 +45,12 @@ const LAST_GENERATION_DEFAULTS = {
   baseManuscriptDoc: createEmptyManuscriptDoc(),
   baseMemory: '',
   generatedText: '',
+  selectedText: '',
   insertionOffset: null,
   insertionTarget: null,
+  selectionDocRange: null,
+  selectionPlainTextRange: null,
+  rewriteInstruction: '',
   whatHappensNext: '',
   nextMainEvent: '',
   limitType: DEFAULT_PROJECT_LIMIT_TYPE,
@@ -85,6 +92,42 @@ function cleanInsertionTarget(value) {
   return {
     insertAtIndex: Number.isInteger(insertAtIndex) ? Math.max(0, insertAtIndex) : 0,
     replaceEmptyParagraph: Boolean(value.replaceEmptyParagraph),
+  };
+}
+
+function cleanRange(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const startIndex = Number(value.startIndex);
+  const endIndex = Number(value.endIndex);
+
+  if (!Number.isFinite(startIndex) || !Number.isFinite(endIndex)) {
+    return null;
+  }
+
+  return {
+    startIndex: Math.max(0, startIndex),
+    endIndex: Math.max(Math.max(0, startIndex), endIndex),
+  };
+}
+
+function cleanDocRange(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const from = Number(value.from);
+  const to = Number(value.to);
+
+  if (!Number.isFinite(from) || !Number.isFinite(to)) {
+    return null;
+  }
+
+  return {
+    from: Math.max(0, from),
+    to: Math.max(Math.max(0, from), to),
   };
 }
 
@@ -168,6 +211,7 @@ export function createGenerationHistoryEntry({
   generationMode = STORY_GENERATION_MODES.CONTINUE,
   source = 'generation',
   generatedText = '',
+  originalText = '',
   startIndex = 0,
   endIndex = startIndex + cleanString(generatedText).length,
   whatHappensNext = '',
@@ -176,7 +220,7 @@ export function createGenerationHistoryEntry({
   createdAt = new Date().toISOString(),
 } = {}) {
   const candidateMode = cleanString(generationMode, STORY_GENERATION_MODES.CONTINUE);
-  const resolvedMode = Object.values(STORY_GENERATION_MODES).includes(candidateMode)
+  const resolvedMode = ALL_STORY_COMMAND_MODES.includes(candidateMode)
     ? candidateMode
     : STORY_GENERATION_MODES.CONTINUE;
   const resolvedGeneratedText = cleanString(generatedText);
@@ -188,6 +232,7 @@ export function createGenerationHistoryEntry({
     generationMode: resolvedMode,
     source: cleanString(source, 'generation'),
     generatedText: resolvedGeneratedText,
+    originalText: cleanString(originalText),
     startIndex: resolvedStartIndex,
     endIndex: resolvedEndIndex,
     whatHappensNext: cleanString(whatHappensNext),
@@ -206,7 +251,7 @@ function normalizeLastGeneration(lastGeneration) {
 
   return {
     historyEntryId: cleanString(lastGeneration.historyEntryId, LAST_GENERATION_DEFAULTS.historyEntryId),
-    generationMode: Object.values(STORY_GENERATION_MODES).includes(candidateMode)
+    generationMode: ALL_STORY_COMMAND_MODES.includes(candidateMode)
       ? candidateMode
       : LAST_GENERATION_DEFAULTS.generationMode,
     baseStoryText: cleanString(lastGeneration.baseStoryText, LAST_GENERATION_DEFAULTS.baseStoryText),
@@ -216,10 +261,14 @@ function normalizeLastGeneration(lastGeneration) {
     ),
     baseMemory: cleanString(lastGeneration.baseMemory, LAST_GENERATION_DEFAULTS.baseMemory),
     generatedText: cleanString(lastGeneration.generatedText, LAST_GENERATION_DEFAULTS.generatedText),
+    selectedText: cleanString(lastGeneration.selectedText, LAST_GENERATION_DEFAULTS.selectedText),
     insertionOffset: Number.isFinite(Number(lastGeneration.insertionOffset))
       ? Math.max(0, Number(lastGeneration.insertionOffset))
       : null,
     insertionTarget: cleanInsertionTarget(lastGeneration.insertionTarget),
+    selectionDocRange: cleanDocRange(lastGeneration.selectionDocRange),
+    selectionPlainTextRange: cleanRange(lastGeneration.selectionPlainTextRange),
+    rewriteInstruction: cleanString(lastGeneration.rewriteInstruction, LAST_GENERATION_DEFAULTS.rewriteInstruction),
     whatHappensNext: cleanString(lastGeneration.whatHappensNext, LAST_GENERATION_DEFAULTS.whatHappensNext),
     nextMainEvent: cleanString(lastGeneration.nextMainEvent, LAST_GENERATION_DEFAULTS.nextMainEvent),
     limitType: normalizeContentField('limitType', lastGeneration.limitType, LAST_GENERATION_DEFAULTS.limitType),

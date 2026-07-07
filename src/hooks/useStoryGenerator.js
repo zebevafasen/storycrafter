@@ -5,8 +5,15 @@ import {
   STORY_LIMIT_TYPES,
   getDefaultLimitValue,
 } from '../config/storyLimits';
-import { generateStorySegment as requestStorySegment, updateMemory } from '../services/openrouter';
-import { STORY_GENERATION_MODES } from '../utils/storyGeneration';
+import {
+  generateStorySegment as requestStorySegment,
+  rewriteStorySelection as requestSelectionRewrite,
+  updateMemory,
+} from '../services/openrouter';
+import {
+  STORY_GENERATION_MODES,
+  STORY_REWRITE_MODES,
+} from '../utils/storyGeneration';
 
 export default function useStoryGenerator({
   config,
@@ -169,10 +176,69 @@ export default function useStoryGenerator({
     return result;
   };
 
+  const rewriteStorySelection = async (overrides = {}) => {
+    if (!config.apiKey) {
+      onToast('Please configure your OpenRouter API Key in Settings first.');
+      return { requiresApiKey: true };
+    }
+
+    setIsGenerating(true);
+    const sourceStoryText = overrides.storyText ?? storyText;
+    const sourceMemory = overrides.memory ?? memory;
+    const sourceSelectionText = overrides.selectedText ?? '';
+    const sourceSelectionRange = overrides.selectionRange ?? null;
+    const sourceRewriteInstruction = overrides.rewriteInstruction ?? whatHappensNext;
+    const sourceRewriteMode = overrides.mode ?? STORY_REWRITE_MODES.REWRITE;
+
+    try {
+      const rewrittenText = await requestSelectionRewrite({
+        apiKey: config.apiKey,
+        model: config.model,
+        temperature: config.temperature,
+        mode: sourceRewriteMode,
+        genres,
+        themes,
+        tags,
+        characters,
+        premise,
+        memory: sourceMemory,
+        storyText: sourceStoryText,
+        selectedText: sourceSelectionText,
+        selectionRange: sourceSelectionRange,
+        rewriteInstruction: sourceRewriteInstruction,
+      });
+
+      if (!rewrittenText) {
+        throw new Error('Received empty rewrite response from the AI co-writer.');
+      }
+
+      setWhatHappensNext('');
+      onToast('Selection rewritten');
+
+      return {
+        success: true,
+        generationMode: sourceRewriteMode,
+        rewrittenText: rewrittenText.trim(),
+        baseStoryText: sourceStoryText,
+        baseMemory: sourceMemory,
+        selectedText: sourceSelectionText,
+        selectionRange: sourceSelectionRange,
+        rewriteInstruction: sourceRewriteInstruction,
+      };
+    } catch (error) {
+      console.error(error);
+      onToast(`Rewrite failed: ${error.message}`);
+      return { success: false, error };
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   return {
     isGenerating,
     isMemoryUpdating,
     generateStorySegment,
+    rewriteStorySelection,
     rebuildMemoryFromStory,
   };
 }

@@ -103,6 +103,7 @@ export default function App() {
     isGenerating,
     isMemoryUpdating,
     generateStorySegment,
+    rewriteStorySelection,
     rebuildMemoryFromStory,
   } = useStoryGenerator({
     config,
@@ -186,10 +187,13 @@ export default function App() {
   const {
     writeMenuState,
     activeWriteCommand,
+    pendingRewriteRequest,
+    canRegenerateLast,
     setActiveWriteCommand,
     handleOpenWriteMenu,
     handleCloseWriteMenu,
     handleRunWriteCommand,
+    handleRewriteSelectionApplied,
     handleDeleteLatest,
     handleRegenerateLast,
     handleManualMemorySync,
@@ -200,6 +204,7 @@ export default function App() {
     nextMainEvent,
     lastGeneration,
     generateStorySegment,
+    rewriteStorySelection,
     rebuildMemoryFromStory,
     setStoryText,
     setManuscriptDoc,
@@ -301,6 +306,8 @@ export default function App() {
             lastGeneration={lastGeneration}
             onManuscriptDocChange={setManuscriptDoc}
             onOpenWriteCommands={handleOpenWriteMenu}
+            rewriteSelectionRequest={pendingRewriteRequest}
+            onRewriteSelectionApplied={handleRewriteSelectionApplied}
             onRegenerateLast={handleRegenerateLast}
             onDeleteLatest={handleDeleteLatest}
           />
@@ -321,10 +328,12 @@ export default function App() {
           isGenerating={isGenerating}
           isWriteMenuOpen={writeMenuState.isOpen}
           activeCommand={activeWriteCommand}
+          writeMenuIntent={writeMenuState.intent}
           writeMenuSource={writeMenuState.source}
           writeMenuAnchorRect={writeMenuState.anchorRect}
           writeMenuSelection={writeMenuState.selection}
-          canRegenerateLast={Boolean(lastGeneration)}
+          selectedText={writeMenuState.selectedText}
+          canRegenerateLast={canRegenerateLast}
           canDeleteLatest={Boolean(lastGeneration?.isApplied)}
           limitType={limitType}
           limitValue={limitValue}

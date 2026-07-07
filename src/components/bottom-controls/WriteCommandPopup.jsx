@@ -3,12 +3,17 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import { STORY_GENERATION_MODES, isStoryGenerationModeAvailable } from '../../utils/storyGeneration';
+import {
+  STORY_GENERATION_MODES,
+  STORY_GENERATION_MODE_OPTIONS,
+  STORY_REWRITE_MODE_OPTIONS,
+  isRewriteMode,
+  isStoryGenerationModeAvailable,
+} from '../../utils/storyGeneration';
 import {
   COMMAND_ICONS,
   getCommandAvailabilityReason,
   getCommandMeta,
-  STORY_GENERATION_MODE_OPTIONS,
 } from './commandConfig';
 import LengthControls from './LengthControls';
 
@@ -20,6 +25,8 @@ export default function WriteCommandPopup({
   limitType,
   limitValue,
   whatHappensNext,
+  selectedText,
+  writeMenuIntent,
   writeMenuSource,
   writeMenuSelection,
   anchoredPopup,
@@ -33,11 +40,21 @@ export default function WriteCommandPopup({
 }) {
   const popupRef = useRef(null);
   const ActiveCommandIcon = COMMAND_ICONS[activeCommand];
-  const activeCommandAvailable = isStoryGenerationModeAvailable(activeCommand, { storyText, nextMainEvent });
+  const activeCommandAvailable = isStoryGenerationModeAvailable(activeCommand, {
+    storyText,
+    nextMainEvent,
+    selectedText,
+  });
   const activeCommandMeta = getCommandMeta(activeCommand);
-  const contextualFooterNote = writeMenuSource === 'editor' && writeMenuSelection
-    ? 'Opened from the current blank line in the manuscript.'
-    : 'Tip: type `/` on a blank line in the editor to reopen this menu quickly.';
+  const rewriteMode = isRewriteMode(activeCommand);
+  const commandOptions = writeMenuIntent === 'rewrite'
+    ? STORY_REWRITE_MODE_OPTIONS
+    : STORY_GENERATION_MODE_OPTIONS;
+  const contextualFooterNote = rewriteMode
+    ? 'The selected prose will be replaced with the AI rewrite.'
+    : (writeMenuSource === 'editor' && writeMenuSelection
+      ? 'Opened from the current blank line in the manuscript.'
+      : 'Tip: type `/` on a blank line in the editor to reopen this menu quickly.');
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -65,15 +82,27 @@ export default function WriteCommandPopup({
     <div className={`command-popup ${anchoredPopup.className}`.trim()} ref={popupRef} style={anchoredPopup.style}>
       <div className="command-popup-sidebar">
         <div className="command-popup-heading">
-          <span className="section-title">Write Commands</span>
-          <p>Choose how the AI should handle the next prose segment.</p>
+          <span className="section-title">{rewriteMode ? 'Rewrite Commands' : 'Write Commands'}</span>
+          <p>
+            {rewriteMode
+              ? 'Choose how the AI should revise the selected prose.'
+              : 'Choose how the AI should handle the next prose segment.'}
+          </p>
         </div>
 
         <div className="command-option-list">
-          {STORY_GENERATION_MODE_OPTIONS.map((option) => {
+          {commandOptions.map((option) => {
             const Icon = COMMAND_ICONS[option.id];
-            const isAvailable = isStoryGenerationModeAvailable(option.id, { storyText, nextMainEvent });
-            const availabilityReason = getCommandAvailabilityReason(option.id, { storyText, nextMainEvent });
+            const isAvailable = isStoryGenerationModeAvailable(option.id, {
+              storyText,
+              nextMainEvent,
+              selectedText,
+            });
+            const availabilityReason = getCommandAvailabilityReason(option.id, {
+              storyText,
+              nextMainEvent,
+              selectedText,
+            });
 
             return (
               <button
@@ -117,6 +146,17 @@ export default function WriteCommandPopup({
         </div>
 
         <div className="command-panel-body">
+          {rewriteMode && selectedText ? (
+            <div className="prompt-box">
+              <label>Selected prose</label>
+              <div className="command-selection-preview">
+                {selectedText.trim().length > 260
+                  ? `${selectedText.trim().slice(0, 257)}...`
+                  : selectedText.trim()}
+              </div>
+            </div>
+          ) : null}
+
           <div className="prompt-box">
             <label htmlFor="whatNext">{activeCommandMeta.microLabel}</label>
             <textarea
@@ -129,7 +169,7 @@ export default function WriteCommandPopup({
             />
           </div>
 
-          {activeCommand === STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL && (
+          {!rewriteMode && activeCommand === STORY_GENERATION_MODES.CONTINUE_TOWARD_GOAL && (
             <div className="prompt-box">
               <label htmlFor="mainGoal">Next main event / goal</label>
               <textarea
@@ -146,15 +186,17 @@ export default function WriteCommandPopup({
             </div>
           )}
 
-          <div className="prompt-box">
-            <label>Segment length</label>
-            <LengthControls
-              limitType={limitType}
-              limitValue={limitValue}
-              onLimitTypeChange={onLimitTypeChange}
-              onLimitValueChange={onLimitValueChange}
-            />
-          </div>
+          {!rewriteMode && (
+            <div className="prompt-box">
+              <label>Segment length</label>
+              <LengthControls
+                limitType={limitType}
+                limitValue={limitValue}
+                onLimitTypeChange={onLimitTypeChange}
+                onLimitValueChange={onLimitValueChange}
+              />
+            </div>
+          )}
         </div>
 
         <div className="command-panel-footer">

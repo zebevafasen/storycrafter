@@ -1,13 +1,17 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import Placeholder from '@tiptap/extension-placeholder';
 import StarterKit from '@tiptap/starter-kit';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { Sparkles } from 'lucide-react';
 import AiSegmentBlock from '../editor/AiSegmentBlock';
 import AiSegmentAnchor from '../editor/AiSegmentAnchor';
 import { StoryEditorContext } from '../editor/StoryEditorContext';
 import WriteCommandLine from '../editor/WriteCommandLine';
+import {
+  createParagraphNodesFromText,
+  manuscriptDocToPlainText,
+} from '../utils/manuscriptDocument';
 
 function getSelectionPlainTextOffset(editor) {
   const { state } = editor;
@@ -23,6 +27,18 @@ function createAnchorRectFromView(view) {
     bottom: caretCoordinates.bottom,
     left: caretCoordinates.left,
     right: caretCoordinates.right,
+  };
+}
+
+function createSelectionAnchorRectFromView(view) {
+  const startCoordinates = view.coordsAtPos(view.state.selection.from);
+  const endCoordinates = view.coordsAtPos(view.state.selection.to);
+
+  return {
+    top: Math.min(startCoordinates.top, endCoordinates.top),
+    bottom: Math.max(startCoordinates.bottom, endCoordinates.bottom),
+    left: Math.min(startCoordinates.left, endCoordinates.left),
+    right: Math.max(startCoordinates.right, endCoordinates.right),
   };
 }
 
@@ -44,6 +60,47 @@ function createInsertionTargetFromView(view) {
   };
 }
 
+function getSelectionPlainTextRange(state) {
+  const startIndex = state.doc.textBetween(0, state.selection.from, '\n\n').length;
+  const selectedText = state.doc.textBetween(state.selection.from, state.selection.to, '\n\n');
+
+  return {
+    startIndex,
+    endIndex: startIndex + selectedText.length,
+    selectedText,
+  };
+}
+
+function buildRewriteSelectionPayload(view) {
+  const { selection } = view.state;
+  if (selection.empty) {
+    return null;
+  }
+
+  const { startIndex, endIndex, selectedText } = getSelectionPlainTextRange(view.state);
+  if (!selectedText.trim()) {
+    return null;
+  }
+
+  return {
+    source: 'editor-selection',
+    anchorRect: createSelectionAnchorRectFromView(view),
+    selection: {
+      from: selection.from,
+      to: selection.to,
+    },
+    selectionDocRange: {
+      from: selection.from,
+      to: selection.to,
+    },
+    selectionPlainTextRange: {
+      startIndex,
+      endIndex,
+    },
+    selectedText,
+  };
+}
+
 export default function StoryCanvas({
   storyText,
   manuscriptDoc,
@@ -52,10 +109,13 @@ export default function StoryCanvas({
   lastGeneration = null,
   onManuscriptDocChange,
   onOpenWriteCommands,
+  rewriteSelectionRequest,
+  onRewriteSelectionApplied,
   onRegenerateLast,
   onDeleteLatest,
 }) {
   const serializedDoc = useMemo(() => JSON.stringify(manuscriptDoc), [manuscriptDoc]);
+  const appliedRewriteRequestIdRef = useRef('');
 
   const editor = useEditor({
     extensions: [
@@ -95,7 +155,14 @@ export default function StoryCanvas({
 
         const { selection } = view.state;
         if (!selection.empty) {
-          return false;
+          const rewriteSelectionPayload = buildRewriteSelectionPayload(view);
+          if (!rewriteSelectionPayload) {
+            return false;
+          }
+
+          event.preventDefault();
+          onOpenWriteCommands(null, rewriteSelectionPayload);
+          return true;
         }
 
         const currentBlockText = selection.$from.parent.textContent || '';
@@ -141,6 +208,41 @@ export default function StoryCanvas({
 
     editor.setEditable(!isGenerating);
   }, [editor, isGenerating]);
+
+  useEffect(() => {
+    if (!editor || !rewriteSelectionRequest?.requestId) {
+      return;
+    }
+
+    if (appliedRewriteRequestIdRef.current === rewriteSelectionRequest.requestId) {
+      return;
+    }
+
+    const { from, to } = rewriteSelectionRequest.selectionDocRange || {};
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from >= to) {
+      return;
+    }
+
+    const replacementText = rewriteSelectionRequest.rewrittenText || '';
+    const replacementParagraphs = createParagraphNodesFromText(replacementText);
+    const replacementContent = replacementParagraphs.length > 1
+      ? replacementParagraphs
+      : replacementText;
+
+    editor.view.dispatch(
+      editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to)),
+    );
+    editor.commands.insertContentAt({ from, to }, replacementContent);
+
+    appliedRewriteRequestIdRef.current = rewriteSelectionRequest.requestId;
+    const nextDoc = editor.getJSON();
+
+    onRewriteSelectionApplied?.({
+      requestId: rewriteSelectionRequest.requestId,
+      nextManuscriptDoc: nextDoc,
+      nextStoryText: manuscriptDocToPlainText(nextDoc),
+    });
+  }, [editor, onRewriteSelectionApplied, rewriteSelectionRequest]);
 
   const handleSelectHistoryEntry = (entry) => {
     if (!editor || !entry?.id) {

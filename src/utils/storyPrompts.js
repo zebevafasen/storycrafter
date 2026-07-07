@@ -1,6 +1,7 @@
 export {
   buildContinueTowardGoalMessages,
   buildContinueWritingMessages,
+  buildRewriteSelectionMessages,
   buildStartWritingMessages,
   buildStorySegmentMessages,
 } from './storySegmentPrompts';

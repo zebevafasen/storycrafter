@@ -6,6 +6,7 @@ import {
   buildCharacterDescriptionMessages,
   buildMemoryUpdateMessages,
   buildPremiseFromSetupMessages,
+  buildRewriteSelectionMessages,
   buildStorySegmentMessages,
 } from '../utils/storyPrompts';
 
@@ -239,6 +240,39 @@ export async function generateStorySegment({
     
     return fullText.trim();
   }
+
+  return makeOpenRouterRequest(apiKey, model, messages, temperature);
+}
+
+export async function rewriteStorySelection({
+  apiKey,
+  model,
+  temperature = 0.7,
+  mode = 'rewrite',
+  genres = [],
+  themes = [],
+  tags = [],
+  characters = [],
+  premise = '',
+  memory = '',
+  storyText = '',
+  selectedText = '',
+  selectionRange = null,
+  rewriteInstruction = '',
+}) {
+  const messages = buildRewriteSelectionMessages({
+    mode,
+    genres,
+    themes,
+    tags,
+    characters,
+    premise,
+    memory,
+    storyText,
+    selectedText,
+    selectionRange,
+    rewriteInstruction,
+  });
 
   return makeOpenRouterRequest(apiKey, model, messages, temperature);
 }

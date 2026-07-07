@@ -66,6 +66,8 @@ export default function BottomControls({
   writeMenuSource,
   writeMenuAnchorRect,
   writeMenuSelection,
+  writeMenuIntent = 'generate',
+  selectedText = '',
   canRegenerateLast,
   canDeleteLatest,
   limitType,
@@ -96,6 +98,8 @@ export default function BottomControls({
           limitType={limitType}
           limitValue={limitValue}
           whatHappensNext={whatHappensNext}
+          selectedText={selectedText}
+          writeMenuIntent={writeMenuIntent}
           writeMenuSource={writeMenuSource}
           writeMenuSelection={writeMenuSelection}
           anchoredPopup={anchoredPopup}

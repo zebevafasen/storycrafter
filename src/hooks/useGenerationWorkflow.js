@@ -13,16 +13,22 @@ import {
 } from '../utils/manuscriptDocument';
 import { createGenerationHistoryEntry } from '../utils/projectState';
 import {
+  getDefaultRewriteMode,
   getDefaultStoryGenerationMode,
+  isRewriteMode,
   isStoryGenerationModeAvailable,
   STORY_GENERATION_MODES,
 } from '../utils/storyGeneration';
 
 const DEFAULT_WRITE_MENU_STATE = {
   isOpen: false,
+  intent: 'generate',
   source: 'dock',
   anchorRect: null,
   selection: null,
+  selectionDocRange: null,
+  selectionPlainTextRange: null,
+  selectedText: '',
   insertionTarget: null,
   plainTextOffset: null,
   commandAnchorId: '',
@@ -31,6 +37,10 @@ const DEFAULT_WRITE_MENU_STATE = {
 };
 
 function buildGenerationSnapshotLabel(mode, isRegeneration = false) {
+  if (isRewriteMode(mode)) {
+    return isRegeneration ? 'Regenerated rewrite' : 'Rewrote selected prose';
+  }
+
   if (isRegeneration) {
     if (mode === STORY_GENERATION_MODES.START) {
       return 'Regenerated opening segment';
@@ -65,6 +75,7 @@ function buildGenerationHistoryEntryFromResult(result, source = 'generation') {
     generationMode: result.generationMode,
     source,
     generatedText: result.generatedSegmentText,
+    originalText: result.selectedText,
     startIndex: range.startIndex,
     endIndex: range.endIndex,
     whatHappensNext: result.whatHappensNext,
@@ -101,6 +112,7 @@ export default function useGenerationWorkflow({
   nextMainEvent,
   lastGeneration,
   generateStorySegment,
+  rewriteStorySelection,
   rebuildMemoryFromStory,
   setStoryText,
   setManuscriptDoc,
@@ -116,6 +128,7 @@ export default function useGenerationWorkflow({
 }) {
   const [writeMenuState, setWriteMenuState] = useState(DEFAULT_WRITE_MENU_STATE);
   const [activeWriteCommand, setActiveWriteCommand] = useState(STORY_GENERATION_MODES.START);
+  const [pendingRewriteRequest, setPendingRewriteRequest] = useState(null);
 
   const resolveWriteCommand = (preferredMode = null) => {
     const candidates = [
@@ -130,16 +143,37 @@ export default function useGenerationWorkflow({
       || getDefaultStoryGenerationMode(storyText);
   };
 
+  const resolveRewriteCommand = (preferredMode = null) => {
+    const candidates = [
+      preferredMode,
+      activeWriteCommand,
+      getDefaultRewriteMode(),
+    ].filter(Boolean);
+
+    return candidates.find((mode) => isRewriteMode(mode)) || getDefaultRewriteMode();
+  };
+
   const handleOpenWriteMenu = (preferredMode = null, options = {}) => {
     const {
       anchorRect = null,
       selection = null,
+      selectionDocRange = null,
+      selectionPlainTextRange = null,
+      selectedText = '',
       insertionTarget = null,
       plainTextOffset = null,
       source = 'dock',
     } = options && typeof options === 'object' ? options : {};
 
-    const commandAnchorId = source === 'editor' && insertionTarget
+    const isRewriteIntent = Boolean(
+      selectedText.trim()
+      && selectionDocRange
+      && Number.isInteger(selectionDocRange.from)
+      && Number.isInteger(selectionDocRange.to)
+      && selectionDocRange.from < selectionDocRange.to
+    );
+
+    const commandAnchorId = !isRewriteIntent && source === 'editor' && insertionTarget
       ? createGenerationHistoryEntry({
         generationMode: resolveWriteCommand(preferredMode),
         source: 'command-anchor',
@@ -153,12 +187,18 @@ export default function useGenerationWorkflow({
       }));
     }
 
-    setActiveWriteCommand(resolveWriteCommand(preferredMode));
+    setActiveWriteCommand(
+      isRewriteIntent ? resolveRewriteCommand(preferredMode) : resolveWriteCommand(preferredMode),
+    );
     setWriteMenuState({
       isOpen: true,
+      intent: isRewriteIntent ? 'rewrite' : 'generate',
       source,
       anchorRect,
       selection,
+      selectionDocRange,
+      selectionPlainTextRange,
+      selectedText,
       insertionTarget,
       plainTextOffset: typeof plainTextOffset === 'number' ? plainTextOffset : null,
       commandAnchorId,
@@ -183,6 +223,51 @@ export default function useGenerationWorkflow({
   const handleRunWriteCommand = async (mode) => {
     const pendingWriteMenuState = writeMenuState;
     handleCloseWriteMenu({ restoreCommandLine: false });
+
+    if (isRewriteMode(mode)) {
+      if (!pendingWriteMenuState.selectedText.trim()) {
+        onToast('Select prose in the editor before using rewrite commands.');
+        return;
+      }
+
+      const rewriteRequestId = createGenerationHistoryEntry({
+        generationMode: mode,
+        source: 'rewrite-preview',
+        originalText: pendingWriteMenuState.selectedText,
+        startIndex: pendingWriteMenuState.selectionPlainTextRange?.startIndex ?? 0,
+        endIndex: pendingWriteMenuState.selectionPlainTextRange?.endIndex ?? pendingWriteMenuState.selectedText.length,
+      }).id;
+      const baseStoryText = pendingWriteMenuState.baseStoryText || storyText;
+      const baseManuscriptDoc = pendingWriteMenuState.baseManuscriptDoc || manuscriptDoc;
+
+      const result = await rewriteStorySelection({
+        mode,
+        storyText: baseStoryText,
+        selectedText: pendingWriteMenuState.selectedText,
+        selectionRange: pendingWriteMenuState.selectionPlainTextRange,
+      });
+
+      if (result?.success) {
+        setPendingRewriteRequest({
+          requestId: rewriteRequestId,
+          generationMode: result.generationMode,
+          rewrittenText: result.rewrittenText,
+          selectedText: pendingWriteMenuState.selectedText,
+          selectionDocRange: pendingWriteMenuState.selectionDocRange,
+          selectionPlainTextRange: pendingWriteMenuState.selectionPlainTextRange,
+          baseStoryText,
+          baseManuscriptDoc,
+          baseMemory: result.baseMemory,
+          rewriteInstruction: result.rewriteInstruction,
+        });
+      }
+
+      if (result?.requiresApiKey) {
+        onRequireSettings();
+      }
+
+      return;
+    }
 
     if (mode === STORY_GENERATION_MODES.START && storyText.trim()) {
       onToast('Start Writing is only available when the manuscript is empty.');
@@ -303,12 +388,72 @@ export default function useGenerationWorkflow({
     }
   };
 
+  const handleRewriteSelectionApplied = ({
+    requestId = '',
+    nextManuscriptDoc = null,
+    nextStoryText = '',
+  } = {}) => {
+    if (!pendingRewriteRequest || pendingRewriteRequest.requestId !== requestId || !nextManuscriptDoc) {
+      return;
+    }
+
+    const segmentStart = pendingRewriteRequest.selectionPlainTextRange?.startIndex ?? 0;
+    const historyEntry = buildGenerationHistoryEntryFromResult({
+      entryId: requestId,
+      generationMode: pendingRewriteRequest.generationMode,
+      generatedSegmentText: pendingRewriteRequest.rewrittenText,
+      selectedText: pendingRewriteRequest.selectedText,
+      whatHappensNext: pendingRewriteRequest.rewriteInstruction,
+      nextMainEvent: '',
+      segmentRange: {
+        startIndex: segmentStart,
+        endIndex: segmentStart + pendingRewriteRequest.rewrittenText.length,
+      },
+    }, 'rewrite');
+
+    updateCurrentProject((projectState) => ({
+      storyText: nextStoryText,
+      manuscriptDoc: nextManuscriptDoc,
+      lastGeneration: {
+        historyEntryId: historyEntry.id,
+        generationMode: pendingRewriteRequest.generationMode,
+        baseStoryText: pendingRewriteRequest.baseStoryText,
+        baseManuscriptDoc: pendingRewriteRequest.baseManuscriptDoc,
+        baseMemory: pendingRewriteRequest.baseMemory,
+        generatedText: pendingRewriteRequest.rewrittenText,
+        insertionOffset: null,
+        insertionTarget: null,
+        selectedText: pendingRewriteRequest.selectedText,
+        selectionDocRange: pendingRewriteRequest.selectionDocRange,
+        selectionPlainTextRange: pendingRewriteRequest.selectionPlainTextRange,
+        rewriteInstruction: pendingRewriteRequest.rewriteInstruction,
+        whatHappensNext: pendingRewriteRequest.rewriteInstruction,
+        nextMainEvent: '',
+        limitType: STORY_LIMIT_TYPES.NO_LIMIT,
+        limitValue: null,
+        isApplied: true,
+        createdAt: new Date().toISOString(),
+      },
+      generationHistory: [...(projectState.generationHistory || []), historyEntry],
+    }));
+    saveSnapshot({
+      label: buildGenerationSnapshotLabel(pendingRewriteRequest.generationMode),
+      source: 'rewrite',
+      contentOverride: {
+        storyText: nextStoryText,
+        manuscriptDoc: nextManuscriptDoc,
+        whatHappensNext: '',
+      },
+    });
+    setPendingRewriteRequest(null);
+  };
+
   const handleDeleteLatest = () => {
     if (!lastGeneration?.isApplied) {
       return;
     }
 
-    const shouldDelete = window.confirm('Delete the latest AI-generated segment and restore the story to its pre-generation state?');
+    const shouldDelete = window.confirm('Delete the latest AI-generated change and restore the draft to its pre-generation state?');
     if (!shouldDelete) {
       return;
     }
@@ -338,11 +483,12 @@ export default function useGenerationWorkflow({
           }
         : null,
     }));
-    onToast('Latest generated segment deleted');
+    onToast('Latest AI change deleted');
   };
 
   const handleRegenerateLast = async () => {
-    if (!lastGeneration) {
+    if (!lastGeneration || isRewriteMode(lastGeneration.generationMode)) {
+      onToast('Regenerate Last is currently available only for generated story segments.');
       return;
     }
 
@@ -485,10 +631,13 @@ export default function useGenerationWorkflow({
   return {
     writeMenuState,
     activeWriteCommand,
+    pendingRewriteRequest,
+    canRegenerateLast: Boolean(lastGeneration && !isRewriteMode(lastGeneration.generationMode)),
     setActiveWriteCommand,
     handleOpenWriteMenu,
     handleCloseWriteMenu,
     handleRunWriteCommand,
+    handleRewriteSelectionApplied,
     handleDeleteLatest,
     handleRegenerateLast,
     handleManualMemorySync,
