@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, Dices, Search } from 'lucide-react';
 import { sortPresetSelection } from '../utils/storyPresets';
 

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Sparkles, UserPlus } from 'lucide-react';
 import CharacterEditor from './CharacterEditor';
 import TagInput from './TagInput';

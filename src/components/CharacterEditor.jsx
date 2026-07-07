@@ -1,4 +1,3 @@
-import React from 'react';
 import { Sparkles, Trash2, UserRound } from 'lucide-react';
 import TagInput from './TagInput';
 import { PRESET_CHARACTER_TAGS } from '../utils/storyPresets';

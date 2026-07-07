@@ -1,4 +1,3 @@
-import React from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import MemoryPanel from './MemoryPanel';
 

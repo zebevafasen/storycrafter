@@ -1,3 +1,4 @@
+import { STORAGE_KEYS } from '../config/storageKeys';
 import usePersistentState from './usePersistentState';
 import {
   applyProjectContent,
@@ -9,11 +10,9 @@ import {
   normalizeProjectsState,
 } from '../utils/projectState';
 
-const PROJECTS_STORAGE_KEY = 'storycrafter_projects_state';
-
 export default function useProjectManager() {
   const [projectsState, setProjectsState] = usePersistentState(
-    PROJECTS_STORAGE_KEY,
+    STORAGE_KEYS.projects,
     createInitialProjectsState,
     {
       deserialize: (storedValue) => normalizeProjectsState(JSON.parse(storedValue)),

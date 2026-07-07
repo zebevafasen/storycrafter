@@ -1,4 +1,3 @@
-import React from 'react';
 import { NodeViewWrapper } from '@tiptap/react';
 import { Slash } from 'lucide-react';
 

@@ -1,12 +1,18 @@
 /**
  * OpenRouter API Service for StoryCrafter
  */
+import { DEFAULT_WORD_LIMIT } from '../config/storyLimits';
 import {
   buildCharacterDescriptionMessages,
+  buildMemoryUpdateMessages,
+  buildPremiseFromSetupMessages,
   buildStorySegmentMessages,
 } from '../utils/storyPrompts';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+const OPENROUTER_REFERER = 'https://github.com/google/antigravity';
+const OPENROUTER_TITLE = 'StoryCrafter AI Co-Writer';
 
 // Default model specified by the user
 export const DEFAULT_MODEL = 'deepseek/deepseek-chat';
@@ -81,61 +87,73 @@ export const AVAILABLE_MODELS = [
   { id: 'openchat/openchat-7b', name: 'OpenChat 7B' }
 ];
 
-/**
- * Helper to make requests to OpenRouter
- */
-async function makeOpenRouterRequest(apiKey, model, messages, temperature = 0.7) {
+function requireApiKey(apiKey) {
   if (!apiKey) {
     throw new Error('OpenRouter API key is missing. Please set it in the Settings panel.');
   }
+}
+
+function buildOpenRouterHeaders(apiKey) {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`,
+    'HTTP-Referer': OPENROUTER_REFERER,
+    'X-Title': OPENROUTER_TITLE,
+  };
+}
+
+async function parseOpenRouterError(response) {
+  const errorData = await response.json().catch(() => ({}));
+  const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
+  throw new Error(message);
+}
+
+async function createOpenRouterResponse({
+  apiKey,
+  model,
+  messages,
+  temperature = 0.7,
+  stream = false,
+}) {
+  requireApiKey(apiKey);
 
   const response = await fetch(OPENROUTER_API_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer': 'https://github.com/google/antigravity', // Required by OpenRouter
-      'X-Title': 'StoryCrafter AI Co-Writer', // Required by OpenRouter
-    },
+    headers: buildOpenRouterHeaders(apiKey),
     body: JSON.stringify({
       model: model || DEFAULT_MODEL,
       messages,
       temperature,
+      stream,
     }),
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
-    throw new Error(message);
+    await parseOpenRouterError(response);
   }
+
+  return response;
+}
+
+/**
+ * Helper to make requests to OpenRouter
+ */
+async function makeOpenRouterRequest(apiKey, model, messages, temperature = 0.7) {
+  const response = await createOpenRouterResponse({
+    apiKey,
+    model,
+    messages,
+    temperature,
+  });
 
   const data = await response.json();
   return data.choices[0].message.content.trim();
 }
 
-function formatCharactersContext(characters = []) {
-  if (!Array.isArray(characters) || characters.length === 0) {
-    return 'No character profiles provided.';
-  }
-
-  return characters
-    .map((character, index) => {
-      const name = character.name?.trim() || `Character ${index + 1}`;
-      const tags = Array.isArray(character.tags) && character.tags.length > 0
-        ? character.tags.join(', ')
-        : 'No character tags';
-      const description = character.description?.trim() || 'No extra description';
-
-      return `- ${name}\n  Tags: ${tags}\n  Description: ${description}`;
-    })
-    .join('\n');
-}
-
 /**
  * Generates the next part of the story
  */
-export async function generateNextSegment({
+export async function generateStorySegment({
   apiKey,
   model,
   temperature = 0.7,
@@ -150,7 +168,7 @@ export async function generateNextSegment({
   whatHappensNext = '',
   nextMainEvent = '',
   limitType = 'words', // 'words' | 'paragraphs' | 'nolimit'
-  limitValue = 250,
+  limitValue = DEFAULT_WORD_LIMIT,
   onChunk = null, // Optional callback for streaming tokens
 }) {
   const messages = buildStorySegmentMessages({
@@ -169,33 +187,20 @@ export async function generateNextSegment({
   });
 
   if (onChunk) {
-    if (!apiKey) {
-      throw new Error('OpenRouter API key is missing. Please set it in the Settings panel.');
-    }
-
-    const response = await fetch(OPENROUTER_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://github.com/google/antigravity',
-        'X-Title': 'StoryCrafter AI Co-Writer',
-      },
-      body: JSON.stringify({
-        model: model || DEFAULT_MODEL,
-        messages,
-        temperature,
-        stream: true,
-      }),
+    const response = await createOpenRouterResponse({
+      apiKey,
+      model,
+      messages,
+      temperature,
+      stream: true,
     });
+    const streamBody = response.body;
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const message = errorData?.error?.message || `HTTP error! status: ${response.status}`;
-      throw new Error(message);
+    if (!streamBody) {
+      throw new Error('OpenRouter returned an empty streaming response.');
     }
 
-    const reader = response.body.getReader();
+    const reader = streamBody.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     let fullText = '';
@@ -238,8 +243,6 @@ export async function generateNextSegment({
   return makeOpenRouterRequest(apiKey, model, messages, temperature);
 }
 
-export const generateStorySegment = generateNextSegment;
-
 /**
  * Automatically updates the story memory list in the background
  */
@@ -251,37 +254,13 @@ export async function updateMemory({
   premise = '',
   newSegmentText = '',
 }) {
-  const systemPrompt = `You are a story memory manager. Your task is to update the summary and key facts of a story based on the latest story segment additions.
-Keep the memory concise, structured, and focused on:
-- Active characters (their statuses, relationships, and inventory)
-- The current setting/location
-- Key plot developments or secrets revealed
-- Active quests or short-term goals
+  const messages = buildMemoryUpdateMessages({
+    currentMemory,
+    characters,
+    premise,
+    newSegmentText,
+  });
 
-Do not write the story. Only output the updated facts as structured bullet points.`;
-
-  const userPrompt = `Current Memory:
-${currentMemory || 'No memory yet.'}
-
-Story Premise:
-${premise || 'No premise set.'}
-
-Character Profiles:
-${formatCharactersContext(characters)}
-
-Newest Story Segment:
----
-${newSegmentText}
----
-
-Generate the updated memory block based on this new information. Keep it under 250 words and format as a bulleted list.`;
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ];
-
-  // We can use a faster/cheaper model for memory or the user's selected model. Let's use the selected model.
   return makeOpenRouterRequest(apiKey, model, messages, 0.3);
 }
 
@@ -297,30 +276,13 @@ export async function generatePremiseFromSetup({
   characters = [],
   currentPremise = '',
 }) {
-  const systemPrompt = `You are a fiction development assistant helping a writer turn a set of creative constraints into a compelling story premise.
-
-Write a concise, vivid summary that:
-- Feels like the back-cover description of a novel
-- Establishes protagonist, setting, central conflict, and tone
-- Uses the provided genres, themes, and tags as guidance
-- Stays grounded and coherent even if the inputs are eclectic
-
-Output only the summary. No title, no bullets, no prefatory text. Keep it to 2 short paragraphs or 120 words maximum.`;
-
-  const userPrompt = `Build a story premise from this setup:
-- Genres: ${genres.length > 0 ? genres.join(', ') : 'Not specified'}
-- Themes: ${themes.length > 0 ? themes.join(', ') : 'Not specified'}
-- Tags: ${tags.length > 0 ? tags.join(', ') : 'Not specified'}
-- Character Profiles:
-${formatCharactersContext(characters)}
-${currentPremise ? `- Existing notes to refine or replace: ${currentPremise}` : ''}
-
-Write the summary now.`;
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt }
-  ];
+  const messages = buildPremiseFromSetupMessages({
+    genres,
+    themes,
+    tags,
+    characters,
+    currentPremise,
+  });
 
   return makeOpenRouterRequest(apiKey, model, messages, 0.9);
 }
@@ -352,7 +314,7 @@ export async function generateCharacterDescription({
  */
 export async function fetchOpenRouterModels() {
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/models');
+    const response = await fetch(OPENROUTER_MODELS_URL);
     if (!response.ok) throw new Error('Failed to fetch models list');
     const json = await response.json();
     if (!json.data || !Array.isArray(json.data)) {

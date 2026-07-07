@@ -1,4 +1,10 @@
 import { useState } from 'react';
+import {
+  DEFAULT_PARAGRAPH_LIMIT,
+  DEFAULT_WORD_LIMIT,
+  STORY_LIMIT_TYPES,
+  getDefaultLimitValue,
+} from '../config/storyLimits';
 import { generateStorySegment as requestStorySegment, updateMemory } from '../services/openrouter';
 import { STORY_GENERATION_MODES } from '../utils/storyGeneration';
 
@@ -72,9 +78,10 @@ export default function useStoryGenerator({
     const originalText = sourceStoryText.trim();
 
     try {
-      const defaultLimitValue = sourceLimitType === 'words' ? 250 : 3;
+      const defaultLimitValue = getDefaultLimitValue(sourceLimitType)
+        ?? (sourceLimitType === STORY_LIMIT_TYPES.WORDS ? DEFAULT_WORD_LIMIT : DEFAULT_PARAGRAPH_LIMIT);
       const parsedLimitValue = Number(sourceLimitValue);
-      const finalLimitValue = sourceLimitType === 'nolimit'
+      const finalLimitValue = sourceLimitType === STORY_LIMIT_TYPES.NO_LIMIT
         ? null
         : (sourceLimitValue === '' || Number.isNaN(parsedLimitValue) || parsedLimitValue <= 0
           ? defaultLimitValue
@@ -127,7 +134,7 @@ export default function useStoryGenerator({
         whatHappensNext: sourceWhatHappensNext,
         nextMainEvent: sourceNextMainEvent,
         limitType: sourceLimitType,
-        limitValue: sourceLimitType === 'nolimit' ? null : finalLimitValue,
+        limitValue: sourceLimitType === STORY_LIMIT_TYPES.NO_LIMIT ? null : finalLimitValue,
       };
     } catch (error) {
       console.error(error);

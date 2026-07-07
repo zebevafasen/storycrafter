@@ -1,18 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Eye, EyeOff } from 'lucide-react';
-import { AVAILABLE_MODELS } from '../services/openrouter';
+import { AVAILABLE_MODELS, DEFAULT_MODEL } from '../services/openrouter';
 import SearchableSelect from './SearchableSelect';
 
 export default function SettingsModal({ isOpen, onClose, config, onSave, modelsList = AVAILABLE_MODELS }) {
   const [apiKey, setApiKey] = useState(config.apiKey || '');
-  const [model, setModel] = useState(config.model || 'deepseek/deepseek-chat');
+  const [model, setModel] = useState(config.model || DEFAULT_MODEL);
   const [temperature, setTemperature] = useState(config.temperature ?? 0.7);
   const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setApiKey(config.apiKey || '');
-      setModel(config.model || 'deepseek/deepseek-chat');
+      setModel(config.model || DEFAULT_MODEL);
       setTemperature(config.temperature ?? 0.7);
     }
   }, [isOpen, config]);

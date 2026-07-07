@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, Edit2, Sparkles } from 'lucide-react';
 
 export default function MemoryPanel({ memory, onChange, isUpdating, disabled = false }) {

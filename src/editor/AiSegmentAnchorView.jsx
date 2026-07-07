@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { NodeViewWrapper } from '@tiptap/react';
 import { ChevronDown, ChevronUp, History, RotateCcw, Trash2 } from 'lucide-react';
 import { useStoryEditorContext } from './StoryEditorContext';

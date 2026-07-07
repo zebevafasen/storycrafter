@@ -1,21 +1,21 @@
 import {
+  DEFAULT_PROJECT_LIMIT_TYPE,
+  DEFAULT_PARAGRAPH_LIMIT,
+  STORY_LIMIT_TYPES,
+} from '../config/storyLimits';
+import {
   createEmptyManuscriptDoc,
   manuscriptDocToPlainText,
   normalizeManuscriptDoc,
   plainTextToManuscriptDoc,
 } from './manuscriptDocument';
+import {
+  hasLegacyProjectData,
+  readLegacyProjectContent,
+} from './projectStateLegacy';
 import { STORY_GENERATION_MODES } from './storyGeneration';
 
 const MAX_SNAPSHOTS_PER_PROJECT = 25;
-
-const LEGACY_STORAGE_KEYS = {
-  storyText: 'storycrafter_text',
-  genres: 'storycrafter_genres',
-  themes: 'storycrafter_themes',
-  customTags: 'storycrafter_tags',
-  premise: 'storycrafter_premise',
-  memory: 'storycrafter_memory',
-};
 
 export const PROJECT_CONTENT_DEFAULTS = {
   storyText: '',
@@ -28,8 +28,8 @@ export const PROJECT_CONTENT_DEFAULTS = {
   memory: '',
   whatHappensNext: '',
   nextMainEvent: '',
-  limitType: 'paragraphs',
-  limitValue: 3,
+  limitType: DEFAULT_PROJECT_LIMIT_TYPE,
+  limitValue: DEFAULT_PARAGRAPH_LIMIT,
 };
 
 export const PROJECT_CONTENT_FIELDS = Object.keys(PROJECT_CONTENT_DEFAULTS);
@@ -46,8 +46,8 @@ const LAST_GENERATION_DEFAULTS = {
   insertionTarget: null,
   whatHappensNext: '',
   nextMainEvent: '',
-  limitType: 'paragraphs',
-  limitValue: 3,
+  limitType: DEFAULT_PROJECT_LIMIT_TYPE,
+  limitValue: DEFAULT_PARAGRAPH_LIMIT,
   isApplied: false,
   createdAt: '',
 };
@@ -127,7 +127,7 @@ function normalizeContentField(field, value, fallbackValue) {
 
   if (field === 'limitType') {
     const candidate = cleanString(resolvedValue, fallbackValue);
-    return ['words', 'paragraphs', 'nolimit'].includes(candidate) ? candidate : fallbackValue;
+    return Object.values(STORY_LIMIT_TYPES).includes(candidate) ? candidate : fallbackValue;
   }
 
   return cleanString(resolvedValue, fallbackValue);
@@ -351,35 +351,7 @@ export function createInitialProjectsState() {
     };
   }
 
-  const legacyProjectContent = {
-    storyText: cleanString(window.localStorage.getItem(LEGACY_STORAGE_KEYS.storyText)),
-    manuscriptDoc: createEmptyManuscriptDoc(),
-    premise: cleanString(window.localStorage.getItem(LEGACY_STORAGE_KEYS.premise)),
-    memory: cleanString(window.localStorage.getItem(LEGACY_STORAGE_KEYS.memory)),
-    characters: [],
-    whatHappensNext: '',
-    nextMainEvent: '',
-    limitType: 'paragraphs',
-    limitValue: 3,
-  };
-
-  try {
-    legacyProjectContent.genres = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEYS.genres) || '[]');
-  } catch {
-    legacyProjectContent.genres = [];
-  }
-
-  try {
-    legacyProjectContent.themes = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEYS.themes) || '[]');
-  } catch {
-    legacyProjectContent.themes = [];
-  }
-
-  try {
-    legacyProjectContent.customTags = JSON.parse(window.localStorage.getItem(LEGACY_STORAGE_KEYS.customTags) || '[]');
-  } catch {
-    legacyProjectContent.customTags = [];
-  }
+  const legacyProjectContent = readLegacyProjectContent(cleanString);
 
   const migratedProject = createProject({
     name: guessProjectName(legacyProjectContent),
@@ -389,14 +361,7 @@ export function createInitialProjectsState() {
     },
   });
 
-  if (
-    migratedProject.storyText.trim() ||
-    migratedProject.premise.trim() ||
-    migratedProject.memory.trim() ||
-    migratedProject.genres.length ||
-    migratedProject.themes.length ||
-    migratedProject.customTags.length
-  ) {
+  if (hasLegacyProjectData(migratedProject)) {
     migratedProject.snapshots = [
       createSnapshot(migratedProject, 'Imported legacy draft', 'migration'),
     ];
