@@ -13,6 +13,9 @@ import {
 } from '../utils/manuscriptDocument';
 import { createGenerationHistoryEntry } from '../utils/projectState';
 import {
+  updateSceneManuscriptDoc,
+} from '../utils/storyStructure';
+import {
   getDefaultRewriteMode,
   getDefaultStoryGenerationMode,
   isRewriteMode,
@@ -32,8 +35,11 @@ const DEFAULT_WRITE_MENU_STATE = {
   insertionTarget: null,
   plainTextOffset: null,
   commandAnchorId: '',
+  sceneId: '',
   baseStoryText: '',
   baseManuscriptDoc: null,
+  baseSceneText: '',
+  baseSceneDoc: null,
 };
 
 function buildGenerationSnapshotLabel(mode, isRegeneration = false) {
@@ -72,6 +78,7 @@ function buildGenerationHistoryEntryFromResult(result, source = 'generation') {
 
   return createGenerationHistoryEntry({
     id: result.entryId,
+    sceneId: result.sceneId,
     generationMode: result.generationMode,
     source,
     generatedText: result.generatedSegmentText,
@@ -83,6 +90,20 @@ function buildGenerationHistoryEntryFromResult(result, source = 'generation') {
     createdAt: new Date().toISOString(),
     isApplied: true,
   });
+}
+
+function buildRecentScenePromptText(sceneText = '', offset = sceneText.length) {
+  const textBeforeCursor = sceneText.slice(0, Math.max(0, offset)).trim();
+  if (!textBeforeCursor) {
+    return '';
+  }
+
+  const paragraphs = textBeforeCursor
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+
+  return paragraphs.slice(-3).join('\n\n');
 }
 
 function applyGeneratedSegmentToDraft({
@@ -109,13 +130,14 @@ function applyGeneratedSegmentToDraft({
 export default function useGenerationWorkflow({
   storyText,
   manuscriptDoc,
+  storyStructure,
+  fullStoryText = storyText,
+  activeSceneId,
   nextMainEvent,
   lastGeneration,
   generateStorySegment,
   rewriteStorySelection,
   rebuildMemoryFromStory,
-  setStoryText,
-  setManuscriptDoc,
   setMemory,
   setWhatHappensNext,
   setNextMainEvent,
@@ -162,8 +184,12 @@ export default function useGenerationWorkflow({
       selectedText = '',
       insertionTarget = null,
       plainTextOffset = null,
+      sceneId = activeSceneId,
       source = 'dock',
     } = options && typeof options === 'object' ? options : {};
+    const targetSceneId = sceneId || activeSceneId;
+    const targetSceneDoc = storyStructure?.scenesById?.[targetSceneId]?.manuscriptDoc || manuscriptDoc;
+    const targetSceneText = manuscriptDocToPlainText(targetSceneDoc);
 
     const isRewriteIntent = Boolean(
       selectedText.trim()
@@ -181,10 +207,16 @@ export default function useGenerationWorkflow({
       : '';
 
     if (commandAnchorId) {
-      setManuscriptDoc((currentDoc) => insertWriteCommandLineInManuscriptDoc(currentDoc, {
-        anchorId: commandAnchorId,
-        insertionTarget,
-      }));
+      updateCurrentProject((projectState) => (
+        updateSceneManuscriptDoc(
+          projectState.storyStructure,
+          targetSceneId,
+          insertWriteCommandLineInManuscriptDoc(targetSceneDoc, {
+            anchorId: commandAnchorId,
+            insertionTarget,
+          }),
+        )
+      ));
     }
 
     setActiveWriteCommand(
@@ -202,17 +234,24 @@ export default function useGenerationWorkflow({
       insertionTarget,
       plainTextOffset: typeof plainTextOffset === 'number' ? plainTextOffset : null,
       commandAnchorId,
-      baseStoryText: storyText,
-      baseManuscriptDoc: manuscriptDoc,
+      sceneId: targetSceneId,
+      baseStoryText: targetSceneText,
+      baseManuscriptDoc: targetSceneDoc,
+      baseSceneText: targetSceneText,
+      baseSceneDoc: targetSceneDoc,
     });
   };
 
   const handleCloseWriteMenu = ({ restoreCommandLine = true } = {}) => {
     if (restoreCommandLine && writeMenuState.commandAnchorId) {
-      setManuscriptDoc(
-        writeMenuState.baseManuscriptDoc
-        || removeWriteCommandLineFromManuscriptDoc(manuscriptDoc, writeMenuState.commandAnchorId),
-      );
+      updateCurrentProject((projectState) => (
+        updateSceneManuscriptDoc(
+          projectState.storyStructure,
+          writeMenuState.sceneId || activeSceneId,
+          writeMenuState.baseManuscriptDoc
+          || removeWriteCommandLineFromManuscriptDoc(manuscriptDoc, writeMenuState.commandAnchorId),
+        )
+      ));
     }
 
     setWriteMenuState(() => ({
@@ -239,16 +278,18 @@ export default function useGenerationWorkflow({
       }).id;
       const baseStoryText = pendingWriteMenuState.baseStoryText || storyText;
       const baseManuscriptDoc = pendingWriteMenuState.baseManuscriptDoc || manuscriptDoc;
+      const targetSceneId = pendingWriteMenuState.sceneId || activeSceneId;
 
       const result = await rewriteStorySelection({
         mode,
-        storyText: baseStoryText,
+        storyText: fullStoryText,
         selectedText: pendingWriteMenuState.selectedText,
         selectionRange: pendingWriteMenuState.selectionPlainTextRange,
       });
 
       if (result?.success) {
         setPendingRewriteRequest({
+          sceneId: targetSceneId,
           requestId: rewriteRequestId,
           generationMode: result.generationMode,
           rewrittenText: result.rewrittenText,
@@ -257,6 +298,8 @@ export default function useGenerationWorkflow({
           selectionPlainTextRange: pendingWriteMenuState.selectionPlainTextRange,
           baseStoryText,
           baseManuscriptDoc,
+          baseSceneText: pendingWriteMenuState.baseSceneText || baseStoryText,
+          baseSceneDoc: pendingWriteMenuState.baseSceneDoc || baseManuscriptDoc,
           baseMemory: result.baseMemory,
           rewriteInstruction: result.rewriteInstruction,
         });
@@ -298,9 +341,10 @@ export default function useGenerationWorkflow({
     const insertionOffset = typeof pendingWriteMenuState.plainTextOffset === 'number'
       ? pendingWriteMenuState.plainTextOffset
       : storyText.length;
+    const targetSceneId = pendingWriteMenuState.sceneId || activeSceneId;
     const promptStoryText = mode === STORY_GENERATION_MODES.START
       ? ''
-      : (pendingWriteMenuState.baseStoryText || storyText).slice(0, insertionOffset);
+      : buildRecentScenePromptText(pendingWriteMenuState.baseStoryText || storyText, insertionOffset);
     const baseStoryText = pendingWriteMenuState.baseStoryText || storyText;
     const baseManuscriptDoc = pendingWriteMenuState.baseManuscriptDoc || manuscriptDoc;
     const insertionTarget = pendingWriteMenuState.insertionTarget;
@@ -310,7 +354,7 @@ export default function useGenerationWorkflow({
         anchorId: commandAnchorId,
         insertionTarget,
       })
-      : manuscriptDoc;
+      : baseManuscriptDoc;
 
     const result = await generateStorySegment({
       mode,
@@ -324,14 +368,15 @@ export default function useGenerationWorkflow({
           insertionTarget,
         });
 
-        setManuscriptDoc(nextManuscriptDoc);
+        updateCurrentProject((projectState) => (
+          updateSceneManuscriptDoc(projectState.storyStructure, targetSceneId, nextManuscriptDoc)
+        ));
       },
     });
 
     if (result?.success) {
       const {
         nextManuscriptDoc,
-        nextStoryText,
         segmentRange,
       } = applyGeneratedSegmentToDraft({
         baseManuscriptDoc: commandLineDoc,
@@ -342,45 +387,50 @@ export default function useGenerationWorkflow({
       });
       const historyEntry = buildGenerationHistoryEntryFromResult({
         ...result,
+        sceneId: targetSceneId,
         entryId,
         segmentRange: segmentRange || {
           startIndex: insertionOffset,
           endIndex: insertionOffset + result.generatedSegmentText.length,
         },
       }, 'generation');
+      const nextSceneContent = updateSceneManuscriptDoc(storyStructure, targetSceneId, nextManuscriptDoc);
 
       updateCurrentProject((projectState) => ({
-        storyText: nextStoryText,
-        manuscriptDoc: nextManuscriptDoc,
-        lastGeneration: {
-          historyEntryId: historyEntry.id,
-          generationMode: result.generationMode,
-          baseStoryText,
-          baseManuscriptDoc,
-          baseMemory: result.baseMemory,
-          generatedText: result.generatedSegmentText,
-          insertionOffset,
-          insertionTarget,
-          whatHappensNext: result.whatHappensNext,
-          nextMainEvent: result.nextMainEvent,
-          limitType: result.limitType,
-          limitValue: result.limitValue,
-          isApplied: true,
-          createdAt: new Date().toISOString(),
-        },
-        generationHistory: [...(projectState.generationHistory || []), historyEntry],
+          ...nextSceneContent,
+          lastGeneration: {
+            historyEntryId: historyEntry.id,
+            sceneId: targetSceneId,
+            generationMode: result.generationMode,
+            baseStoryText,
+            baseManuscriptDoc,
+            baseSceneText: baseStoryText,
+            baseSceneDoc: baseManuscriptDoc,
+            baseMemory: result.baseMemory,
+            generatedText: result.generatedSegmentText,
+            insertionOffset,
+            insertionTarget,
+            whatHappensNext: result.whatHappensNext,
+            nextMainEvent: result.nextMainEvent,
+            limitType: result.limitType,
+            limitValue: result.limitValue,
+            isApplied: true,
+            createdAt: new Date().toISOString(),
+          },
+          generationHistory: [...(projectState.generationHistory || []), historyEntry],
       }));
       saveSnapshot({
         label: buildGenerationSnapshotLabel(result.generationMode),
         source: 'generation',
         contentOverride: {
-          storyText: nextStoryText,
-          manuscriptDoc: nextManuscriptDoc,
+          ...nextSceneContent,
           whatHappensNext: '',
         },
       });
     } else if (result && !result.requiresApiKey) {
-      setManuscriptDoc(baseManuscriptDoc);
+      updateCurrentProject((projectState) => (
+        updateSceneManuscriptDoc(projectState.storyStructure, targetSceneId, baseManuscriptDoc)
+      ));
     }
 
     if (result?.requiresApiKey) {
@@ -389,16 +439,18 @@ export default function useGenerationWorkflow({
   };
 
   const handleRewriteSelectionApplied = ({
+    sceneId = '',
     requestId = '',
     nextManuscriptDoc = null,
-    nextStoryText = '',
   } = {}) => {
     if (!pendingRewriteRequest || pendingRewriteRequest.requestId !== requestId || !nextManuscriptDoc) {
       return;
     }
 
+    const targetSceneId = sceneId || pendingRewriteRequest.sceneId || activeSceneId;
     const segmentStart = pendingRewriteRequest.selectionPlainTextRange?.startIndex ?? 0;
     const historyEntry = buildGenerationHistoryEntryFromResult({
+      sceneId: targetSceneId,
       entryId: requestId,
       generationMode: pendingRewriteRequest.generationMode,
       generatedSegmentText: pendingRewriteRequest.rewrittenText,
@@ -410,38 +462,40 @@ export default function useGenerationWorkflow({
         endIndex: segmentStart + pendingRewriteRequest.rewrittenText.length,
       },
     }, 'rewrite');
+    const nextSceneContent = updateSceneManuscriptDoc(storyStructure, targetSceneId, nextManuscriptDoc);
 
     updateCurrentProject((projectState) => ({
-      storyText: nextStoryText,
-      manuscriptDoc: nextManuscriptDoc,
-      lastGeneration: {
-        historyEntryId: historyEntry.id,
-        generationMode: pendingRewriteRequest.generationMode,
-        baseStoryText: pendingRewriteRequest.baseStoryText,
-        baseManuscriptDoc: pendingRewriteRequest.baseManuscriptDoc,
-        baseMemory: pendingRewriteRequest.baseMemory,
-        generatedText: pendingRewriteRequest.rewrittenText,
-        insertionOffset: null,
-        insertionTarget: null,
-        selectedText: pendingRewriteRequest.selectedText,
-        selectionDocRange: pendingRewriteRequest.selectionDocRange,
-        selectionPlainTextRange: pendingRewriteRequest.selectionPlainTextRange,
-        rewriteInstruction: pendingRewriteRequest.rewriteInstruction,
-        whatHappensNext: pendingRewriteRequest.rewriteInstruction,
-        nextMainEvent: '',
-        limitType: STORY_LIMIT_TYPES.NO_LIMIT,
-        limitValue: null,
-        isApplied: true,
-        createdAt: new Date().toISOString(),
-      },
-      generationHistory: [...(projectState.generationHistory || []), historyEntry],
+        ...nextSceneContent,
+        lastGeneration: {
+          historyEntryId: historyEntry.id,
+          sceneId: targetSceneId,
+          generationMode: pendingRewriteRequest.generationMode,
+          baseStoryText: pendingRewriteRequest.baseStoryText,
+          baseManuscriptDoc: pendingRewriteRequest.baseManuscriptDoc,
+          baseSceneText: pendingRewriteRequest.baseSceneText,
+          baseSceneDoc: pendingRewriteRequest.baseSceneDoc,
+          baseMemory: pendingRewriteRequest.baseMemory,
+          generatedText: pendingRewriteRequest.rewrittenText,
+          insertionOffset: null,
+          insertionTarget: null,
+          selectedText: pendingRewriteRequest.selectedText,
+          selectionDocRange: pendingRewriteRequest.selectionDocRange,
+          selectionPlainTextRange: pendingRewriteRequest.selectionPlainTextRange,
+          rewriteInstruction: pendingRewriteRequest.rewriteInstruction,
+          whatHappensNext: pendingRewriteRequest.rewriteInstruction,
+          nextMainEvent: '',
+          limitType: STORY_LIMIT_TYPES.NO_LIMIT,
+          limitValue: null,
+          isApplied: true,
+          createdAt: new Date().toISOString(),
+        },
+        generationHistory: [...(projectState.generationHistory || []), historyEntry],
     }));
     saveSnapshot({
       label: buildGenerationSnapshotLabel(pendingRewriteRequest.generationMode),
       source: 'rewrite',
       contentOverride: {
-        storyText: nextStoryText,
-        manuscriptDoc: nextManuscriptDoc,
+        ...(nextSceneContent || {}),
         whatHappensNext: '',
       },
     });
@@ -463,14 +517,17 @@ export default function useGenerationWorkflow({
       source: 'delete-latest-backup',
     });
 
-    setStoryText(lastGeneration.baseStoryText);
-    setManuscriptDoc(lastGeneration.baseManuscriptDoc);
     setMemory(lastGeneration.baseMemory);
     setWhatHappensNext(lastGeneration.whatHappensNext);
     setNextMainEvent(lastGeneration.nextMainEvent);
     setCurrentProjectField('limitType', lastGeneration.limitType);
     setLimitValue(lastGeneration.limitValue);
     updateCurrentProject((projectState) => ({
+      ...updateSceneManuscriptDoc(
+        projectState.storyStructure,
+        lastGeneration.sceneId || activeSceneId,
+        lastGeneration.baseSceneDoc || lastGeneration.baseManuscriptDoc,
+      ),
       generationHistory: (projectState.generationHistory || []).map((entry) => (
         entry.id === projectState.lastGeneration?.historyEntryId
           ? { ...entry, isApplied: false }
@@ -510,7 +567,10 @@ export default function useGenerationWorkflow({
       generationMode: lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE,
       source: 'regeneration-command-anchor',
     }).id;
-    const regenerationCommandLineDoc = insertWriteCommandLineInManuscriptDoc(lastGeneration.baseManuscriptDoc, {
+    const targetSceneId = lastGeneration.sceneId || activeSceneId;
+    const baseSceneText = lastGeneration.baseSceneText || lastGeneration.baseStoryText;
+    const baseSceneDoc = lastGeneration.baseSceneDoc || lastGeneration.baseManuscriptDoc;
+    const regenerationCommandLineDoc = insertWriteCommandLineInManuscriptDoc(baseSceneDoc, {
       anchorId: regenerationCommandAnchorId,
       insertionTarget: lastGeneration.insertionTarget,
     });
@@ -519,7 +579,7 @@ export default function useGenerationWorkflow({
       mode: lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE,
       storyText: (lastGeneration.generationMode ?? STORY_GENERATION_MODES.CONTINUE) === STORY_GENERATION_MODES.START
         ? ''
-        : lastGeneration.baseStoryText.slice(0, lastGeneration.insertionOffset ?? lastGeneration.baseStoryText.length),
+        : buildRecentScenePromptText(baseSceneText, lastGeneration.insertionOffset ?? baseSceneText.length),
       memory: lastGeneration.baseMemory,
       whatHappensNext: lastGeneration.whatHappensNext,
       nextMainEvent: lastGeneration.nextMainEvent,
@@ -534,14 +594,15 @@ export default function useGenerationWorkflow({
           insertionTarget: lastGeneration.insertionTarget,
         });
 
-        setManuscriptDoc(nextManuscriptDoc);
+        updateCurrentProject((projectState) => (
+          updateSceneManuscriptDoc(projectState.storyStructure, targetSceneId, nextManuscriptDoc)
+        ));
       },
     });
 
     if (result?.success) {
       const {
         nextManuscriptDoc,
-        nextStoryText,
         segmentRange,
       } = applyGeneratedSegmentToDraft({
         baseManuscriptDoc: regenerationCommandLineDoc,
@@ -552,37 +613,41 @@ export default function useGenerationWorkflow({
       });
       const historyEntry = buildGenerationHistoryEntryFromResult({
         ...result,
+        sceneId: targetSceneId,
         entryId: regenerationEntryId,
         segmentRange: segmentRange || {
           startIndex: lastGeneration.insertionOffset ?? 0,
           endIndex: (lastGeneration.insertionOffset ?? 0) + result.generatedSegmentText.length,
         },
       }, 'regeneration');
+      const nextSceneContent = updateSceneManuscriptDoc(storyStructure, targetSceneId, nextManuscriptDoc);
 
       updateCurrentProject((projectState) => ({
-        generationHistory: (projectState.generationHistory || []).map((entry) => (
-          entry.id === lastGeneration.historyEntryId
-            ? { ...entry, isApplied: false }
-            : entry
-        )).concat(historyEntry),
-        storyText: nextStoryText,
-        manuscriptDoc: nextManuscriptDoc,
-        lastGeneration: {
-          historyEntryId: historyEntry.id,
-          generationMode: result.generationMode,
-          baseStoryText: lastGeneration.baseStoryText,
-          baseManuscriptDoc: lastGeneration.baseManuscriptDoc,
-          baseMemory: result.baseMemory,
-          generatedText: result.generatedSegmentText,
-          insertionOffset: lastGeneration.insertionOffset ?? null,
-          insertionTarget: lastGeneration.insertionTarget ?? null,
-          whatHappensNext: result.whatHappensNext,
-          nextMainEvent: result.nextMainEvent,
-          limitType: result.limitType,
-          limitValue: result.limitValue,
-          isApplied: true,
-          createdAt: new Date().toISOString(),
-        },
+          ...nextSceneContent,
+          generationHistory: (projectState.generationHistory || []).map((entry) => (
+            entry.id === lastGeneration.historyEntryId
+              ? { ...entry, isApplied: false }
+              : entry
+          )).concat(historyEntry),
+          lastGeneration: {
+            historyEntryId: historyEntry.id,
+            sceneId: targetSceneId,
+            generationMode: result.generationMode,
+            baseStoryText: lastGeneration.baseStoryText,
+            baseManuscriptDoc: lastGeneration.baseManuscriptDoc,
+            baseSceneText,
+            baseSceneDoc,
+            baseMemory: result.baseMemory,
+            generatedText: result.generatedSegmentText,
+            insertionOffset: lastGeneration.insertionOffset ?? null,
+            insertionTarget: lastGeneration.insertionTarget ?? null,
+            whatHappensNext: result.whatHappensNext,
+            nextMainEvent: result.nextMainEvent,
+            limitType: result.limitType,
+            limitValue: result.limitValue,
+            isApplied: true,
+            createdAt: new Date().toISOString(),
+          },
       }));
       setMemory(result.baseMemory);
       setWhatHappensNext(result.whatHappensNext);
@@ -593,8 +658,7 @@ export default function useGenerationWorkflow({
         label: buildGenerationSnapshotLabel(result.generationMode, true),
         source: 'regeneration',
         contentOverride: {
-          storyText: nextStoryText,
-          manuscriptDoc: nextManuscriptDoc,
+          ...(nextSceneContent || {}),
           whatHappensNext: '',
         },
       });

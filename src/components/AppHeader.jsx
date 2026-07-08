@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   BookOpen,
   Brain,
@@ -24,9 +25,13 @@ export default function AppHeader({
   onCopyStory,
   onExportText,
   onExportMarkdown,
+  onExportCurrentText,
+  onExportCurrentMarkdown,
   onClearStory,
   onOpenSettings,
 }) {
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
   return (
     <header className="app-header">
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -78,12 +83,35 @@ export default function AppHeader({
             <button onClick={onCopyStory} className="icon-btn" title="Copy entire story to clipboard">
               <Copy size={16} />
             </button>
-            <button onClick={onExportText} className="icon-btn" title="Export as TXT">
-              <FileText size={16} />
-            </button>
-            <button onClick={onExportMarkdown} className="icon-btn" title="Export as Markdown">
-              <Download size={16} />
-            </button>
+            <div className="header-menu-shell">
+              <button
+                onClick={() => setIsExportMenuOpen((isOpen) => !isOpen)}
+                className="icon-btn"
+                title="Export story"
+              >
+                <Download size={16} />
+              </button>
+              {isExportMenuOpen && (
+                <div className="header-menu">
+                  <button type="button" onClick={() => { setIsExportMenuOpen(false); onExportText(); }}>
+                    <FileText size={14} />
+                    Whole story TXT
+                  </button>
+                  <button type="button" onClick={() => { setIsExportMenuOpen(false); onExportMarkdown(); }}>
+                    <Download size={14} />
+                    Whole story MD
+                  </button>
+                  <button type="button" onClick={() => { setIsExportMenuOpen(false); onExportCurrentText(); }}>
+                    <FileText size={14} />
+                    Current scope TXT
+                  </button>
+                  <button type="button" onClick={() => { setIsExportMenuOpen(false); onExportCurrentMarkdown(); }}>
+                    <Download size={14} />
+                    Current scope MD
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={onClearStory}
               className="icon-btn text-danger"

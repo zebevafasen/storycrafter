@@ -5,7 +5,6 @@ import {
 } from '../config/storyLimits';
 import {
   createEmptyManuscriptDoc,
-  manuscriptDocToPlainText,
   normalizeManuscriptDoc,
   plainTextToManuscriptDoc,
 } from './manuscriptDocument';
@@ -17,12 +16,18 @@ import {
   ALL_STORY_COMMAND_MODES,
   STORY_GENERATION_MODES,
 } from './storyGeneration';
+import {
+  createInitialStoryStructure,
+  createProjectContentFromStructure,
+  normalizeStoryStructure,
+} from './storyStructure';
 
 const MAX_SNAPSHOTS_PER_PROJECT = 25;
 
 export const PROJECT_CONTENT_DEFAULTS = {
   storyText: '',
   manuscriptDoc: createEmptyManuscriptDoc(),
+  storyStructure: createInitialStoryStructure(),
   genres: [],
   themes: [],
   customTags: [],
@@ -43,6 +48,9 @@ const LAST_GENERATION_DEFAULTS = {
   generationMode: STORY_GENERATION_MODES.CONTINUE,
   baseStoryText: '',
   baseManuscriptDoc: createEmptyManuscriptDoc(),
+  sceneId: '',
+  baseSceneText: '',
+  baseSceneDoc: createEmptyManuscriptDoc(),
   baseMemory: '',
   generatedText: '',
   selectedText: '',
@@ -177,17 +185,27 @@ function normalizeContentField(field, value, fallbackValue) {
 }
 
 function normalizeProjectContent(source = {}, fallback = PROJECT_CONTENT_DEFAULTS) {
-  const manuscriptDoc = normalizeManuscriptDoc(source.manuscriptDoc, cleanString(source.storyText, fallback.storyText));
-  const normalizedStoryText = cleanString(source.storyText, manuscriptDocToPlainText(manuscriptDoc));
+  const fallbackText = cleanString(source.storyText, fallback.storyText);
+  const fallbackDoc = normalizeManuscriptDoc(source.manuscriptDoc || fallback.manuscriptDoc, fallbackText);
+  const storyStructure = normalizeStoryStructure(source.storyStructure, {
+    manuscriptDoc: fallbackDoc,
+    storyText: fallbackText,
+  });
+  const derivedContent = createProjectContentFromStructure(storyStructure);
 
   return PROJECT_CONTENT_FIELDS.reduce((content, field) => {
+    if (field === 'storyStructure') {
+      content[field] = derivedContent.storyStructure;
+      return content;
+    }
+
     if (field === 'manuscriptDoc') {
-      content[field] = manuscriptDoc;
+      content[field] = derivedContent.manuscriptDoc;
       return content;
     }
 
     if (field === 'storyText') {
-      content[field] = normalizedStoryText;
+      content[field] = derivedContent.storyText;
       return content;
     }
 
@@ -208,6 +226,7 @@ function normalizeSnapshot(snapshot) {
 
 export function createGenerationHistoryEntry({
   id = createId('generation'),
+  sceneId = '',
   generationMode = STORY_GENERATION_MODES.CONTINUE,
   source = 'generation',
   generatedText = '',
@@ -229,6 +248,7 @@ export function createGenerationHistoryEntry({
 
   return {
     id: cleanString(id, createId('generation')),
+    sceneId: cleanString(sceneId),
     generationMode: resolvedMode,
     source: cleanString(source, 'generation'),
     generatedText: resolvedGeneratedText,
@@ -258,6 +278,12 @@ function normalizeLastGeneration(lastGeneration) {
     baseManuscriptDoc: normalizeManuscriptDoc(
       lastGeneration.baseManuscriptDoc,
       cleanString(lastGeneration.baseStoryText, LAST_GENERATION_DEFAULTS.baseStoryText),
+    ),
+    sceneId: cleanString(lastGeneration.sceneId, LAST_GENERATION_DEFAULTS.sceneId),
+    baseSceneText: cleanString(lastGeneration.baseSceneText, LAST_GENERATION_DEFAULTS.baseSceneText),
+    baseSceneDoc: normalizeManuscriptDoc(
+      lastGeneration.baseSceneDoc,
+      cleanString(lastGeneration.baseSceneText, LAST_GENERATION_DEFAULTS.baseSceneText),
     ),
     baseMemory: cleanString(lastGeneration.baseMemory, LAST_GENERATION_DEFAULTS.baseMemory),
     generatedText: cleanString(lastGeneration.generatedText, LAST_GENERATION_DEFAULTS.generatedText),
@@ -318,13 +344,15 @@ export function createProject({
   generationHistory = [],
   snapshots = [],
 } = {}) {
+  const normalizedContent = normalizeProjectContent(content, PROJECT_CONTENT_DEFAULTS);
+
   return {
     id: createId('project'),
     name: cleanString(name, 'Untitled Project'),
     createdAt,
     updatedAt,
     ...PROJECT_CONTENT_DEFAULTS,
-    ...content,
+    ...normalizedContent,
     lastGeneration: normalizeLastGeneration(lastGeneration),
     generationHistory: normalizeGenerationHistory(generationHistory),
     snapshots,

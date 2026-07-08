@@ -74,6 +74,11 @@ export default function App() {
     project,
     storyText,
     manuscriptDoc,
+    storyStructure,
+    activeScene,
+    activeSceneId,
+    activeSceneText,
+    visibleSceneEntries,
     genres,
     themes,
     customTags,
@@ -86,8 +91,18 @@ export default function App() {
     nextMainEvent,
     limitType,
     limitValue,
-    setStoryText,
-    setManuscriptDoc,
+    setSceneManuscriptDoc,
+    setActiveSceneId,
+    setViewScope,
+    addAct,
+    addChapter,
+    addScene,
+    renameStructureNode,
+    reorderStructureNode,
+    moveChapterToAct,
+    moveSceneToChapter,
+    moveStructureNode,
+    deleteStructureNode,
     setGenres,
     setThemes,
     setCustomTags,
@@ -176,7 +191,7 @@ export default function App() {
     characters,
     premise,
     memory,
-    setStoryText,
+    storyStructure,
     setMemory,
     setWhatHappensNext,
     setNextMainEvent,
@@ -199,15 +214,16 @@ export default function App() {
     handleManualMemorySync,
     handleLimitTypeChange,
   } = useGenerationWorkflow({
-    storyText,
-    manuscriptDoc,
+    storyText: activeSceneText,
+    manuscriptDoc: activeScene?.manuscriptDoc || manuscriptDoc,
+    storyStructure,
+    fullStoryText: storyText,
+    activeSceneId,
     nextMainEvent,
     lastGeneration,
     generateStorySegment,
     rewriteStorySelection,
     rebuildMemoryFromStory,
-    setStoryText,
-    setManuscriptDoc,
     setMemory,
     setWhatHappensNext,
     setNextMainEvent,
@@ -268,6 +284,8 @@ export default function App() {
         onCopyStory={handleCopyToClipboard}
         onExportText={() => handleExport('txt')}
         onExportMarkdown={() => handleExport('markdown')}
+        onExportCurrentText={() => handleExport('txt', { currentScopeOnly: true })}
+        onExportCurrentMarkdown={() => handleExport('markdown', { currentScopeOnly: true })}
         onClearStory={handleClearStory}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -294,17 +312,35 @@ export default function App() {
         onRandomizeThemes={handleRandomizeThemes}
         onRandomizeCustomTags={handleRandomizeCustomTags}
         onGeneratePremise={handleGeneratePremise}
+        storyStructure={storyStructure}
+        activeSceneId={activeSceneId}
+        visibleScope={storyStructure.viewScope}
+        onViewScopeChange={setViewScope}
+        onActiveSceneChange={setActiveSceneId}
+        onAddAct={addAct}
+        onAddChapter={addChapter}
+        onAddScene={addScene}
+        onRenameStructureNode={renameStructureNode}
+        onReorderStructureNode={reorderStructureNode}
+        onMoveChapterToAct={moveChapterToAct}
+        onMoveSceneToChapter={moveSceneToChapter}
+        onMoveStructureNode={moveStructureNode}
+        onDeleteStructureNode={deleteStructureNode}
       />
 
       <main className="center-workspace">
         <Suspense fallback={<StoryCanvasFallback />}>
           <StoryCanvas
-            storyText={storyText}
-            manuscriptDoc={manuscriptDoc}
+            storyStructure={storyStructure}
+            visibleSceneEntries={visibleSceneEntries}
+            activeSceneId={activeSceneId}
             isGenerating={isGenerating}
             generationHistory={generationHistory}
             lastGeneration={lastGeneration}
-            onManuscriptDocChange={setManuscriptDoc}
+            onSceneManuscriptDocChange={setSceneManuscriptDoc}
+            onActiveSceneChange={setActiveSceneId}
+            onViewScopeChange={setViewScope}
+            onAddScene={addScene}
             onOpenWriteCommands={handleOpenWriteMenu}
             rewriteSelectionRequest={pendingRewriteRequest}
             onRewriteSelectionApplied={handleRewriteSelectionApplied}
@@ -324,7 +360,7 @@ export default function App() {
         />
 
         <BottomControls
-          storyText={storyText}
+          storyText={activeSceneText}
           isGenerating={isGenerating}
           isWriteMenuOpen={writeMenuState.isOpen}
           activeCommand={activeWriteCommand}

@@ -51,8 +51,8 @@ export default function AiSegmentAnchorView({ node }) {
           type="button"
           className="story-command-anchor-toggle"
           onClick={() => setIsExpanded((isOpen) => !isOpen)}
-          aria-label={`Open AI segment history (${generationHistory.length} segment${generationHistory.length === 1 ? '' : 's'})`}
-          title={`AI segment history: ${generationHistory.length} segment${generationHistory.length === 1 ? '' : 's'}`}
+          aria-label={`Open scene AI history (${generationHistory.length} item${generationHistory.length === 1 ? '' : 's'})`}
+          title={`Scene AI history: ${generationHistory.length} item${generationHistory.length === 1 ? '' : 's'}`}
         >
           <span className="story-command-anchor-badge">
             <History size={10} />
@@ -66,11 +66,11 @@ export default function AiSegmentAnchorView({ node }) {
           <div className="story-command-history-popover" contentEditable={false}>
             <div className="story-command-history-header">
               <div>
-                <span className="section-title">Segment History</span>
+                <span className="section-title">Scene AI History</span>
                 <p>
                   {currentEntry
                     ? `Selected: ${getStoryGenerationModeLabel(currentEntry.generationMode)}`
-                    : 'Recent AI generations anchored in the draft.'}
+                    : 'Recent AI generations for this scene.'}
                 </p>
               </div>
               <div className="story-command-inline-actions">

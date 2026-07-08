@@ -1,4 +1,8 @@
 import { buildStoryExport, downloadTextFile } from '../utils/storyExport';
+import {
+  createInitialStoryStructure,
+  createProjectContentFromStructure,
+} from '../utils/storyStructure';
 
 export default function useWorkspaceActions({
   currentProjectId,
@@ -16,7 +20,7 @@ export default function useWorkspaceActions({
   characters,
   premise,
   memory,
-  setStoryText,
+  storyStructure,
   setMemory,
   setWhatHappensNext,
   setNextMainEvent,
@@ -29,11 +33,11 @@ export default function useWorkspaceActions({
         label: 'Before clearing story',
         source: 'clear-backup',
       });
-      setStoryText('');
       setMemory('');
       setWhatHappensNext('');
       setNextMainEvent('');
       updateCurrentProject({
+        ...createProjectContentFromStructure(createInitialStoryStructure()),
         lastGeneration: null,
         generationHistory: [],
       });
@@ -56,13 +60,9 @@ export default function useWorkspaceActions({
     }
   };
 
-  const handleExport = (format) => {
-    if (!storyText.trim()) {
-      onToast('Nothing to export.');
-      return;
-    }
-
-    const { filename, outputText } = buildStoryExport({
+  const handleExport = (format, { currentScopeOnly = false } = {}) => {
+    const exportScope = currentScopeOnly ? storyStructure.viewScope : null;
+    const { filename, outputText, manuscriptText } = buildStoryExport({
       format,
       genres,
       themes,
@@ -71,10 +71,17 @@ export default function useWorkspaceActions({
       premise,
       memory,
       storyText,
+      storyStructure,
+      exportScope,
     });
 
+    if (!manuscriptText.trim()) {
+      onToast('Nothing to export.');
+      return;
+    }
+
     downloadTextFile(filename, outputText);
-    onToast(`Exported as ${format.toUpperCase()}`);
+    onToast(`Exported ${currentScopeOnly ? 'current scope' : 'story'} as ${format.toUpperCase()}`);
   };
 
   const handleCreateProject = (name) => {

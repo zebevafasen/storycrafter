@@ -1,3 +1,5 @@
+import { storyStructureToExportText } from './storyStructure';
+
 export function buildStoryExport({
   format,
   genres,
@@ -7,8 +9,14 @@ export function buildStoryExport({
   premise,
   memory,
   storyText,
+  storyStructure = null,
+  exportScope = null,
 }) {
-  const filename = `story.${format === 'markdown' ? 'md' : 'txt'}`;
+  const filenamePrefix = exportScope ? 'story-current-scope' : 'story';
+  const filename = `${filenamePrefix}.${format === 'markdown' ? 'md' : 'txt'}`;
+  const manuscriptText = storyStructure
+    ? storyStructureToExportText(storyStructure, format, exportScope)
+    : storyText;
 
   if (format === 'markdown') {
     let outputText = '# Story Setup\n\n';
@@ -27,9 +35,9 @@ export function buildStoryExport({
     }
     if (premise) outputText += `## Premise\n${premise}\n\n`;
     if (memory) outputText += `## Running Memory\n${memory}\n\n`;
-    outputText += `## Story\n\n${storyText}`;
+    outputText += `## Story\n\n${manuscriptText}`;
 
-    return { filename, outputText };
+    return { filename, outputText, manuscriptText };
   }
 
   const outputText = [
@@ -53,10 +61,10 @@ export function buildStoryExport({
     '',
     'Story:',
     '',
-    storyText,
+    manuscriptText,
   ].join('\n');
 
-  return { filename, outputText };
+  return { filename, outputText, manuscriptText };
 }
 
 export function downloadTextFile(filename, outputText) {
